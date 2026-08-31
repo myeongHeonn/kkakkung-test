@@ -20,6 +20,8 @@ const TYPES = {
 let seq = 0;
 const server = http.createServer((req, res) => {
   const url = decodeURIComponent(req.url.split('?')[0]);
+  // Colyseus 가 /matchmake 를 자기 리스너로 처리한다. 여기서 응답하면 충돌한다.
+  if(url.startsWith('/matchmake')) return;
   // 브라우저가 실제로 무엇을 몇 번 요청하는지 남긴다 (중복 로드 추적용)
   const tag = String(++seq).padStart(3, '0');
   const h = req.headers;
@@ -67,22 +69,29 @@ const server = http.createServer((req, res) => {
   });
 });
 
-/* 멀티플레이 — `ws` 가 설치돼 있을 때만 붙인다.
-   혼자 톤·입력을 볼 때는 npm install 없이도 정적 서버가 그대로 떠야 한다.
-   지금까지의 S0~S2 워크플로(의존성 0)를 깨지 않으려는 것이다. */
+/* 멀티플레이 — Colyseus. 설치돼 있을 때만 붙는다.
+   혼자 톤·입력만 볼 때는 npm install 없이도 정적 서버가 떠야 한다. */
 let multi = '꺼짐 — `npm install` 하면 켜진다';
+let listen = cb => server.listen(PORT, cb);
 try{
-  const { WebSocketServer } = require('ws');
-  const { createRoom, attach, MAX_PLAYERS } = require('./server/room');
-  const room = createRoom();
-  const wss = new WebSocketServer({ server, path:'/ws' });
-  wss.on('connection', ws => attach(room, ws));
-  multi = `켜짐 — ws://…/ws (최대 ${MAX_PLAYERS}인)`;
+  const { Server: ColyseusServer } = require('colyseus');
+  const { WebSocketTransport } = require('@colyseus/ws-transport');
+  const { KkakkungRoom, MAX_PLAYERS } = require('./server/KkakkungRoom');
+
+  const gameServer = new ColyseusServer({
+    transport: new WebSocketTransport({ server }),
+  });
+  // 공개·비공개를 같은 방 정의로 쓰고 code 로 가른다.
+  // code 가 같은 사람끼리 묶이고, code 없는 사람들은 공개 풀에서 매칭된다.
+  gameServer.define('kkakkung', KkakkungRoom).filterBy(['code']);
+
+  listen = cb => gameServer.listen(PORT).then(cb);
+  multi = `켜짐 — Colyseus (방당 최대 ${MAX_PLAYERS}인)`;
 }catch(e){
   if(e.code !== 'MODULE_NOT_FOUND') throw e;
 }
 
-server.listen(PORT, () => {
+listen(() => {
   console.log(`까꿍 dev server → http://localhost:${PORT}/spike-play.html`);
   console.log(`멀티플레이: ${multi}`);
 });
