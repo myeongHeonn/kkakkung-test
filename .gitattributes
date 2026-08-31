@@ -1,0 +1,15 @@
+# 저장소 안에서는 LF 로 통일한다. 윈도우에서 작업하고 깃허브에 올리므로
+# 이게 없으면 줄바꿈만 바뀐 커밋이 diff 를 통째로 덮어 리뷰가 불가능해진다.
+* text=auto eol=lf
+
+# 문서·코드 모두 텍스트로 다룬다 (한글 파일명 포함)
+*.md   text eol=lf
+*.html text eol=lf
+*.js   text eol=lf
+*.json text eol=lf
+
+# 나중에 들어올 수 있는 바이너리
+*.png  binary
+*.jpg  binary
+*.webm binary
+*.task binary

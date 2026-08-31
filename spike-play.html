@@ -1,0 +1,1550 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>까꿍 — S2 통합 (3D + 얼굴 입력)</title>
+<style>
+  :root{--bone:#cfc6b4;--blood:#b81d24;--line:#322c2b;--muted:#8b8382}
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;overflow:hidden;background:#000;color:#ebe4d9;
+    font-family:Pretendard,"Noto Sans KR",system-ui,-apple-system,"Segoe UI",sans-serif;font-size:11px}
+  canvas#gl{display:block}
+  .panel{position:fixed;z-index:10;padding:12px;width:236px;
+    background:rgba(10,8,8,.84);border:1px solid var(--line);border-radius:11px;
+    backdrop-filter:blur(10px);line-height:1.5}
+  #face{top:12px;left:12px}
+  #tone{top:12px;right:12px;width:206px}
+  #sound{right:12px;bottom:12px;width:206px}
+  .panel h3{margin:0 0 8px;color:var(--muted);font-size:9px;font-weight:900;letter-spacing:.13em}
+  #camwrap{position:relative;width:100%;aspect-ratio:4/3;overflow:hidden;border-radius:7px;background:#000}
+  #cam,#dots{position:absolute;inset:0;width:100%;height:100%;transform:scaleX(-1)}
+  #cam{object-fit:cover}
+  .btn{width:100%;min-height:32px;margin-top:7px;padding:6px;color:#060404;background:var(--bone);
+    border:0;border-radius:7px;font:inherit;font-weight:900;cursor:pointer}
+  .btn.ghost{color:#ebe4d9;background:#171313;border:1px solid #3a3332}
+  .btn:disabled{opacity:.4;cursor:default}
+  .row{display:flex;align-items:center;gap:7px;margin:5px 0}
+  .row label{flex:1;color:#b0a8a7}
+  .row input[type=range]{width:88px;accent-color:var(--bone)}
+  .row output{width:40px;color:var(--bone);text-align:right;font-variant-numeric:tabular-nums}
+  .chk{display:flex;align-items:center;gap:6px;color:#b0a8a7;cursor:pointer;margin:4px 0}
+  .chk input{accent-color:var(--bone);margin:0}
+  .row select{width:104px;padding:3px 5px;color:#ebe4d9;background:#171313;
+    border:1px solid #3a3332;border-radius:5px;font:inherit;font-size:10px}
+  .pills{display:flex;flex-wrap:wrap;gap:4px;margin-top:7px}
+  .pill{padding:3px 7px;background:#171313;border:1px solid #3a3332;border-radius:999px;
+    color:var(--muted);font-size:9px;font-weight:800;font-variant-numeric:tabular-nums}
+  .pill.on{color:#060404;background:var(--bone);border-color:var(--bone)}
+  .pill.warn{color:#fff;background:var(--blood);border-color:var(--blood)}
+  .sep{margin:9px 0;border-top:1px solid #2b2626}
+  canvas.graph{width:100%;height:52px;display:block;background:#060404;border-radius:5px;margin-top:5px}
+  #hint{position:fixed;z-index:10;left:50%;bottom:14px;transform:translateX(-50%);
+    padding:8px 14px;background:rgba(10,8,8,.8);border:1px solid var(--line);border-radius:999px;
+    color:#a39a97;white-space:nowrap}
+  #hint b{color:var(--bone)}
+  .hidden{display:none!important}
+  #err{position:fixed;z-index:40;left:50%;top:14px;transform:translateX(-50%);max-width:640px;
+    padding:12px 14px;background:#2a0d0f;border:1px solid var(--blood);border-radius:10px;
+    color:#ffdcdc;font-size:11px;line-height:1.6;display:none}
+  #err.show{display:block}
+  #err b{color:#fff}
+  #err button{margin-left:10px;padding:2px 8px;color:#fff;background:transparent;
+    border:1px solid var(--blood);border-radius:5px;font:inherit;font-size:10px;cursor:pointer}
+  #diag{margin-top:7px;color:var(--muted);font-size:9px;line-height:1.6}
+  #diag b{color:var(--bone)}
+  #boot{position:fixed;inset:0;z-index:30;display:grid;place-items:center;
+    background:#060404;color:var(--muted);font-size:13px}
+</style>
+<script type="importmap">
+{"imports":{
+  "three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+  "three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+}}
+</script>
+</head>
+<body>
+<div id="boot">로딩 중…</div>
+<div id="err"></div>
+
+<div class="panel" id="face">
+  <h3>얼굴 입력</h3>
+  <div id="camwrap"><video id="cam" muted playsinline></video><canvas id="dots"></canvas></div>
+  <button class="btn" id="start">카메라 시작</button>
+  <button class="btn ghost" id="calib" disabled>중립 자세 캘리브레이션 (2초)</button>
+  <div class="pills">
+    <span class="pill" id="pMode">키보드 모드</span>
+    <span class="pill" id="pYawArm">장전</span>
+    <span class="pill" id="pSizeArm">장전</span>
+  </div>
+  <canvas class="graph" id="gYaw"></canvas>
+  <canvas class="graph" id="gSize"></canvas>
+  <div class="sep"></div>
+  <div class="row"><label>mincutoff</label>
+    <input id="mincut" type="range" min="0.1" max="4" step="0.05" value="1"><output id="mincutv"></output></div>
+  <div class="row"><label>beta</label>
+    <input id="beta" type="range" min="0" max="0.08" step="0.001" value="0.007"><output id="betav"></output></div>
+  <div class="row"><label>회전 발동</label>
+    <input id="yTrig" type="range" min="0.05" max="0.6" step="0.01" value="0.24"><output id="yTrigv"></output></div>
+  <div class="row"><label>회전 재장전</label>
+    <input id="yRel" type="range" min="0.01" max="0.4" step="0.01" value="0.1"><output id="yRelv"></output></div>
+  <div class="row"><label>전후 발동</label>
+    <input id="sTrig" type="range" min="0.02" max="0.4" step="0.01" value="0.12"><output id="sTrigv"></output></div>
+  <div class="row"><label>전후 재장전</label>
+    <input id="sRel" type="range" min="0.01" max="0.2" step="0.005" value="0.05"><output id="sRelv"></output></div>
+  <div class="row"><label>쿨다운 ms</label>
+    <input id="cool" type="range" min="150" max="900" step="10" value="400"><output id="coolv"></output></div>
+  <div class="row"><label>엿보기 세기</label>
+    <input id="peekAmt" type="range" min="0" max="40" step="1" value="19"><output id="peekAmtv"></output></div>
+  <div class="sep"></div>
+  <div class="row"><label>전진 입력</label>
+    <select id="fwdMode"><option value="lean">몸 기울이기</option><option value="jaw">입 벌리기</option></select></div>
+  <div class="row"><label>거리 신호</label>
+    <select id="distSrc"><option value="bbox">bbox 면적</option><option value="matrix">행렬 거리</option></select></div>
+  <label class="chk"><input type="checkbox" id="holdFwd" checked>전진 홀드 반복 (기울인 채 유지)</label>
+  <label class="chk"><input type="checkbox" id="supYaw" checked>회전 중 전후 신호 억제</label>
+  <label class="chk"><input type="checkbox" id="invY">회전 방향 반전</label>
+  <label class="chk"><input type="checkbox" id="invS">전후 방향 반전</label>
+  <label class="chk"><input type="checkbox" id="faceTex" checked>내 얼굴을 그것에 씌우기</label>
+  <button class="btn ghost" id="dump">튜닝값 콘솔 출력</button>
+  <div id="diag"></div>
+</div>
+
+<div class="panel" id="tone">
+  <h3>톤 · 성능</h3>
+  <div class="row"><label>안개 밀도</label>
+    <input id="fog" type="range" min="0" max="0.25" step="0.005" value="0.105"><output id="fogv"></output></div>
+  <div class="row"><label>손전등</label>
+    <input id="lamp" type="range" min="0" max="80" step="1" value="34"><output id="lampv"></output></div>
+  <div class="row"><label>환경광</label>
+    <input id="amb" type="range" min="0" max="0.3" step="0.005" value="0.03"><output id="ambv"></output></div>
+  <label class="chk"><input type="checkbox" id="tPost" checked>후처리(블룸·그레인·비네트)</label>
+  <label class="chk"><input type="checkbox" id="tShadow" checked>그림자</label>
+  <div class="sep"></div>
+  <div class="row"><label>해상도 배율</label>
+    <select id="pxRatio"><option value="1">1.0 (가장 빠름)</option><option value="1.25" selected>1.25</option><option value="1.5">1.5</option><option value="2">2.0 (선명)</option></select></div>
+  <div class="row"><label>추론 fps</label>
+    <input id="inferHz" type="range" min="8" max="60" step="1" value="20"><output id="inferHzv"></output></div>
+  <div class="row"><label>엿보기 반응</label>
+    <input id="peekTau" type="range" min="0.02" max="0.3" step="0.01" value="0.07"><output id="peekTauv"></output></div>
+  <div class="row"><label>추론 스레드</label>
+    <select id="thread" title="워커 경로는 보류됨 — 구현계획.md S2 참조"><option value="main" selected>메인</option></select></div>
+  <div class="row"><label>델리게이트</label>
+    <select id="delegate"><option value="GPU" selected>GPU</option><option value="CPU">CPU</option></select></div>
+  <label class="chk"><input type="checkbox" id="useBlend">블렌드셰이프 (입 벌리기 전용 · 별도 모델)</label>
+  <button class="btn ghost" id="fast">성능 우선 프리셋</button>
+  <div class="sep"></div>
+  <div class="pills">
+    <span class="pill" id="pRender">렌더 -- fps</span>
+    <span class="pill" id="pFrame">프레임 -- ms</span>
+    <span class="pill" id="pInfer">추론 -- fps</span>
+    <span class="pill" id="pInferMs">추론 -- ms</span>
+    <span class="pill" id="pThread">스레드 --</span>
+    <span class="pill" id="pCell">CELL --</span>
+  </div>
+  <p style="margin:7px 0 0;color:var(--muted);font-size:9px;line-height:1.6">
+    <b style="color:var(--bone)">추론 ms</b>가 16을 넘으면 그게 끊김의 원인이다.
+    <b style="color:var(--bone)">워커</b> 모드에서는 이 시간이 메인 스레드 밖에서 소비되므로
+    추론 ms가 16을 넘어도 렌더가 끊기지 않는다. 설정 변경 후에는 카메라를 다시 시작한다.</p>
+</div>
+
+<div class="panel" id="sound">
+  <h3>소리</h3>
+  <button class="btn" id="sndOn">소리 켜기</button>
+  <div class="row"><label>마스터</label>
+    <input id="vMaster" type="range" min="0" max="1" step="0.01" value="0.95"><output id="vMasterv"></output></div>
+  <div class="row"><label>드론</label>
+    <input id="vDrone" type="range" min="0" max="1" step="0.01" value="0.85"><output id="vDronev"></output></div>
+  <div class="row"><label>심장박동</label>
+    <input id="vHeart" type="range" min="0" max="1" step="0.01" value="0.95"><output id="vHeartv"></output></div>
+  <div class="row"><label>속삭임</label>
+    <input id="vWhis" type="range" min="0" max="1" step="0.01" value="0.8"><output id="vWhisv"></output></div>
+  <div class="row"><label>주변음 · 숨</label>
+    <input id="vAmb" type="range" min="0" max="1" step="0.01" value="0.85"><output id="vAmbv"></output></div>
+  <label class="chk"><input type="checkbox" id="sStep" checked>발소리 · 옷깃</label>
+  <label class="chk"><input type="checkbox" id="sSting" checked>스팅어 (그것이 보일 때)</label>
+  <div class="pills">
+    <span class="pill" id="pAudio">소리 꺼짐</span>
+    <span class="pill" id="pDread">근접 --</span>
+  </div>
+  <p style="margin:7px 0 0;color:var(--muted);font-size:9px;line-height:1.6">
+    전부 실시간 합성 — 음원 파일이 없다. 마스터 앞에 리미터가 있어 크게 밀어도 찌그러지지 않는다.
+    <b style="color:var(--bone)">주변음</b>은 그것과 무관하게 아무 때나 나고,
+    <b style="color:var(--bone)">숨·끄는 발소리</b>는 그것이 있는 쪽에서 난다 (등 뒤면 어둡게).
+    <b style="color:var(--bone)">스팅어</b>가 터질 땐 나머지가 잠깐 죽는다.</p>
+</div>
+
+<div id="hint"><b>고개 좌우</b> 회전 · <b>상체 앞으로 기울인 채 유지</b> 계속 전진 · 뒤로 빼면 후진 · <b>WASD</b> 병행 · <b>H</b> UI</div>
+
+<script type="module">
+import * as THREE from 'three';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { FaceLandmarker, FilesetResolver } from
+  'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.18/vision_bundle.mjs';
+
+const MODEL = 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
+const VISION = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.18/vision_bundle.mjs';
+
+/* 워커 추론 경로 — 현재 보류. face-worker.js 는 로드되지만 프레임이 흐르지 않는
+   상태에서 원인을 특정하지 못했다. 메인 스레드 추론으로 충분하다고 판단해
+   UI 옵션을 제거했다. 배경과 재검토 조건은 구현계획.md S2 에 기록. */
+const WORKER_URL = 'face-worker.js';
+const WASM  = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.18/wasm';
+const $ = id => document.getElementById(id);
+// alert 는 실행을 막고 원인 파악을 방해한다. 화면에 남겨서 읽을 수 있게 한다.
+function showErr(title, msg){
+  const el = $('err');
+  el.innerHTML = '<b>' + title + '</b><br>' + String(msg).replace(/</g,'&lt;') +
+    '<button onclick="this.parentNode.classList.remove(\'show\')">닫기</button>';
+  el.classList.add('show');
+  console.error('[까꿍]', title, msg);
+}
+
+/* ══ 공간 규약 (구현계획.md S0) ═════════════════════ */
+const CELL = 3.0, WALL_H = 3.2, EYE = 1.6;
+const GRID = ['#######','#.....#','#.###.#','#.....#','#.#.#.#','#.....#','#######'];
+const START = { x:3, y:5, dir:1 };
+const CREATURE = { x:5, y:2 };
+const DIRS = [{dx:0,dy:-1},{dx:1,dy:0},{dx:0,dy:1},{dx:-1,dy:0}];
+const walkable = (x,y) => GRID[y] && GRID[y][x] && GRID[y][x] !== '#';
+const wx = g => g * CELL, wz = g => g * CELL;
+
+/* ══ 절차적 텍스처 ════════════════════════════════ */
+function fractalNoise(size, octaves){
+  const h = new Float32Array(size*size); let amp = 1, tot = 0;
+  for(let o=0;o<octaves;o++){
+    const st = Math.max(1, size >> (o+2)), gw = Math.ceil(size/st)+2;
+    const g = new Float32Array(gw*gw);
+    for(let i=0;i<g.length;i++) g[i] = Math.random();
+    for(let y=0;y<size;y++) for(let x=0;x<size;x++){
+      const fx=x/st, fy=y/st, ix=Math.floor(fx), iy=Math.floor(fy);
+      const tx=fx-ix, ty=fy-iy, sx=tx*tx*(3-2*tx), sy=ty*ty*(3-2*ty);
+      const a=g[iy*gw+ix], b=g[iy*gw+ix+1], c=g[(iy+1)*gw+ix], d=g[(iy+1)*gw+ix+1];
+      const t0=a+(b-a)*sx, t1=c+(d-c)*sx;
+      h[y*size+x] += amp*(t0+(t1-t0)*sy);
+    }
+    tot += amp; amp *= 0.5;
+  }
+  for(let i=0;i<h.length;i++) h[i] /= tot;
+  return h;
+}
+function texFrom(h, size, mode, tint){
+  const cv = document.createElement('canvas'); cv.width = cv.height = size;
+  const ctx = cv.getContext('2d'), img = ctx.createImageData(size,size), d = img.data;
+  const at = (x,y) => h[((y+size)%size)*size + ((x+size)%size)];
+  for(let y=0;y<size;y++) for(let x=0;x<size;x++){
+    const i=(y*size+x)*4, v=at(x,y);
+    if(mode==='albedo'){
+      const s = (0.42 + v*0.5) * (0.86 + 0.14*Math.sin(x*0.09 + v*7));
+      d[i]=tint[0]*s; d[i+1]=tint[1]*s; d[i+2]=tint[2]*s; d[i+3]=255;
+    } else if(mode==='normal'){
+      const nx=(at(x-1,y)-at(x+1,y))*5.5, ny=(at(x,y-1)-at(x,y+1))*5.5, L=Math.hypot(nx,ny,1);
+      d[i]=(nx/L*0.5+0.5)*255; d[i+1]=(ny/L*0.5+0.5)*255; d[i+2]=(1/L*0.5+0.5)*255; d[i+3]=255;
+    } else {
+      const r=(1-v)*0.45+0.5; d[i]=d[i+1]=d[i+2]=r*255; d[i+3]=255;
+    }
+  }
+  ctx.putImageData(img,0,0);
+  const t = new THREE.CanvasTexture(cv);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  if(mode==='albedo') t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+function surface(size, oct, tint, rep){
+  const h = fractalNoise(size, oct);
+  const map = texFrom(h,size,'albedo',tint);
+  const normalMap = texFrom(h,size,'normal');
+  const roughnessMap = texFrom(h,size,'rough');
+  [map,normalMap,roughnessMap].forEach(t=>{ t.repeat.set(rep,rep); t.anisotropy = 8; });
+  return { map, normalMap, roughnessMap };
+}
+
+/* ══ 씬 ═══════════════════════════════════════════ */
+const renderer = new THREE.WebGLRenderer({ antialias:true, powerPreference:'high-performance' });
+renderer.domElement.id = 'gl';
+renderer.setPixelRatio(Math.min(devicePixelRatio, 1.25));
+renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.05;
+document.body.appendChild(renderer.domElement);
+
+const FOG = 0x050303;
+const scene = new THREE.Scene();
+scene.fog = new THREE.FogExp2(FOG, 0.105);
+scene.background = new THREE.Color(FOG);
+
+const camera = new THREE.PerspectiveCamera(72, innerWidth/innerHeight, 0.1, 60);
+camera.position.set(wx(START.x), EYE, wz(START.y));
+scene.add(camera);
+
+const ambient = new THREE.AmbientLight(0xa9b4c8, 0.03); scene.add(ambient);
+const flashlight = new THREE.SpotLight(0xffd2a0, 34, 17, 0.78, 0.7, 1.5);
+flashlight.castShadow = true;
+flashlight.shadow.mapSize.set(768,768);
+flashlight.shadow.camera.near = 0.4; flashlight.shadow.camera.far = 18;
+flashlight.shadow.bias = -0.0035;
+camera.add(flashlight); camera.add(flashlight.target);
+flashlight.target.position.set(0,0,-1);
+camera.add(new THREE.PointLight(0xffc890, 1.1, 5.5, 2.0));
+
+const wallSurf = surface(256,5,[206,198,186],1);
+const floorSurf = surface(256,5,[150,142,132],7);
+const ceilSurf = surface(256,4,[120,114,108],7);
+const wallMat = new THREE.MeshStandardMaterial(Object.assign({},wallSurf,
+  { roughness:1, metalness:0, normalScale:new THREE.Vector2(1.3,1.3) }));
+const floorMat = new THREE.MeshStandardMaterial(Object.assign({},floorSurf,
+  { roughness:1, metalness:0, normalScale:new THREE.Vector2(1.1,1.1) }));
+const ceilMat = new THREE.MeshStandardMaterial(Object.assign({},ceilSurf,
+  { roughness:1, metalness:0 }));
+
+const SPAN = GRID.length*CELL, plane = new THREE.PlaneGeometry(SPAN,SPAN);
+const floor = new THREE.Mesh(plane, floorMat);
+floor.rotation.x = -Math.PI/2;
+floor.position.set(SPAN/2-CELL/2, 0, SPAN/2-CELL/2);
+floor.receiveShadow = true; scene.add(floor);
+const ceil = new THREE.Mesh(plane, ceilMat);
+ceil.rotation.x = Math.PI/2;
+ceil.position.set(SPAN/2-CELL/2, WALL_H, SPAN/2-CELL/2);
+ceil.receiveShadow = true; scene.add(ceil);
+
+const box = new THREE.BoxGeometry(CELL, WALL_H, CELL);
+for(let y=0;y<GRID.length;y++) for(let x=0;x<GRID[y].length;x++){
+  if(GRID[y][x] !== '#') continue;
+  if(!DIRS.some(d => walkable(x+d.dx, y+d.dy))) continue;
+  const m = new THREE.Mesh(box, wallMat);
+  m.position.set(wx(x), WALL_H/2, wz(y));
+  m.castShadow = true; m.receiveShadow = true; scene.add(m);
+}
+
+/* 그것 — 대두 + 길고 가는 팔다리 (기획서 §2.4) */
+const dark = new THREE.MeshStandardMaterial({ color:0x0d0b0b, roughness:0.95 });
+const skin = new THREE.MeshStandardMaterial({ color:0x8a7f74, roughness:0.72 });
+const creature = new THREE.Group();
+const head = new THREE.Mesh(new THREE.SphereGeometry(0.56,28,20), skin);
+head.scale.set(0.94,1.14,0.9); head.position.y = 2.16;
+const torso = new THREE.Mesh(new THREE.BoxGeometry(0.34,0.74,0.22), dark);
+torso.position.y = 1.18;
+creature.add(head); creature.add(torso);
+const armGeo = new THREE.CylinderGeometry(0.055,0.042,1.16,8);
+[[-0.24,0.16],[0.24,-0.16]].forEach(p => {
+  const a = new THREE.Mesh(armGeo, dark);
+  a.position.set(p[0],0.98,0); a.rotation.z = p[1]; creature.add(a);
+});
+const legGeo = new THREE.CylinderGeometry(0.06,0.05,1.5,8);
+[[-0.12,0.05],[0.12,-0.05]].forEach(p => {
+  const l = new THREE.Mesh(legGeo, dark);
+  l.position.set(p[0],0.75,0); l.rotation.z = p[1]; creature.add(l);
+});
+
+/* 얼굴 — 웹캠을 캔버스로 크롭·그레이스케일해서 머리 앞면에 붙인다.
+   MeshStandardMaterial 이므로 손전등이 비출 때만 드러난다. */
+const faceCv = document.createElement('canvas'); faceCv.width = faceCv.height = 256;
+const fctx = faceCv.getContext('2d');
+fctx.fillStyle = '#8a7f74'; fctx.fillRect(0,0,256,256);
+const faceTexture = new THREE.CanvasTexture(faceCv);
+faceTexture.colorSpace = THREE.SRGBColorSpace;
+const faceMat = new THREE.MeshStandardMaterial({ map:faceTexture, roughness:0.68 });
+const facePlane = new THREE.Mesh(new THREE.PlaneGeometry(0.95,1.15), faceMat);
+facePlane.position.set(0, 2.16, 0.44);
+facePlane.visible = false;
+creature.add(facePlane);
+
+creature.traverse(o => { if(o.isMesh) o.castShadow = true; });
+creature.position.set(wx(CREATURE.x), 0, wz(CREATURE.y));
+scene.add(creature);
+
+/* ══ 후처리 ═══════════════════════════════════════ */
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth/2, innerHeight/2), 0.25, 0.6, 0.85);
+composer.addPass(bloom);
+// 블룸은 밉 체인을 여러 번 블러하므로 후처리 중 가장 비싸다.
+// 절반 해상도로 돌려도 육안 차이가 거의 없고 비용은 1/4이 된다.
+const sizeBloomHalf = () => bloom.setSize(innerWidth/2, innerHeight/2);
+const grade = new ShaderPass({
+  uniforms:{ tDiffuse:{value:null}, uTime:{value:0}, uGrain:{value:0.085},
+             uVig:{value:0.8}, uAberr:{value:0.0022} },
+  vertexShader:[
+    'varying vec2 vUv;',
+    'void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }'
+  ].join('\n'),
+  fragmentShader:[
+    'uniform sampler2D tDiffuse; uniform float uTime,uGrain,uVig,uAberr; varying vec2 vUv;',
+    'float rand(vec2 c){ return fract(sin(dot(c,vec2(12.9898,78.233)))*43758.5453); }',
+    'void main(){',
+    '  vec2 d = vUv - 0.5; vec2 off = d * uAberr;',
+    '  vec4 c = vec4(texture2D(tDiffuse,vUv+off).r, texture2D(tDiffuse,vUv).g,',
+    '                texture2D(tDiffuse,vUv-off).b, 1.0);',
+    '  c.rgb *= mix(1.0, smoothstep(0.92,0.22,length(d)), uVig);',
+    '  c.rgb += (rand(vUv*vec2(1920.0,1080.0)+uTime)-0.5) * uGrain;',
+    '  gl_FragColor = c;',
+    '}'
+  ].join('\n')
+});
+composer.addPass(grade);
+composer.addPass(new OutputPass());
+let postOn = true;
+
+/* ══ One Euro Filter ══════════════════════════════ */
+class LowPass {
+  constructor(){ this.s = null; }
+  filter(x,a){ this.s = (this.s===null) ? x : a*x + (1-a)*this.s; return this.s; }
+}
+class OneEuro {
+  constructor(mincutoff=1.0, beta=0.007, dcutoff=1.0){
+    this.mincutoff = mincutoff; this.beta = beta; this.dcutoff = dcutoff;
+    this.x = new LowPass(); this.dx = new LowPass(); this.prev = null; this.prevT = null;
+  }
+  alpha(cut,dt){ const tau = 1/(2*Math.PI*cut); return 1/(1+tau/dt); }
+  filter(v,t){
+    const dt = (this.prevT===null) ? 1/30 : Math.max(1e-3, t-this.prevT);
+    this.prevT = t;
+    const dv = (this.prev===null) ? 0 : (v-this.prev)/dt;
+    this.prev = v;
+    const edv = this.dx.filter(dv, this.alpha(this.dcutoff,dt));
+    return this.x.filter(v, this.alpha(this.mincutoff + this.beta*Math.abs(edv), dt));
+  }
+}
+const fYaw = new OneEuro(), fPitch = new OneEuro(), fSize = new OneEuro();
+
+class Gate {
+  constructor(pill){ this.armed = true; this.until = 0; this.pill = pill; }
+  // hold=true 면 중립 복귀 없이 쿨다운마다 재발동한다.
+  // 전진은 hold, 회전은 재장전 — 계속 돌아가면 안 되므로.
+  update(v,trig,rel,cool,now,fire,hold){
+    if(now < this.until){ this.paint(hold ? '반복' : '쿨다운'); return; }
+    if(Math.abs(v) >= trig && (this.armed || hold)){
+      this.armed = false; this.until = now + cool; fire(Math.sign(v));
+    }
+    if(!this.armed && Math.abs(v) < rel) this.armed = true;
+    this.paint(hold ? (Math.abs(v) >= trig ? '반복' : '대기') : (this.armed ? '장전' : '해제'));
+  }
+  paint(t){
+    this.pill.textContent = t;
+    this.pill.classList.toggle('on', t === '장전' || t === '반복');
+  }
+}
+const gateYaw = new Gate($('pYawArm')), gateSize = new Gate($('pSizeArm'));
+
+/* ══ 한 칸 이동 ═══════════════════════════════════ */
+const player = { x:START.x, y:START.y, dir:START.dir };
+let anim = null, bob = 0;
+const ease = t => t<0.5 ? 4*t*t*t : 1-Math.pow(-2*t+2,3)/2;
+let camYaw = -START.dir*Math.PI/2;
+
+function step(sign){
+  if(anim) return false;
+  const d = DIRS[player.dir];
+  const nx = player.x + d.dx*sign, ny = player.y + d.dy*sign;
+  if(!walkable(nx,ny) || (nx===CREATURE.x && ny===CREATURE.y)) return false;
+  anim = { kind:'move', t:0, fx:wx(player.x), fz:wz(player.y), tx:wx(nx), tz:wz(ny) };
+  player.x = nx; player.y = ny;
+  footstep(sign < 0);
+  return true;
+}
+function turn(side){
+  if(anim) return false;
+  player.dir = (player.dir + (side==='left'?3:1))%4;
+  anim = { kind:'turn', t:0, from:camYaw, to:camYaw + (side==='left'?Math.PI/2:-Math.PI/2) };
+  rustle(side);
+  return true;
+}
+addEventListener('keydown', e => {
+  const k = e.key.toLowerCase();
+  if(k === 'h'){
+    document.querySelectorAll('.panel,#hint').forEach(n => n.classList.toggle('hidden'));
+    return;
+  }
+  const m = { arrowup:()=>step(1), w:()=>step(1), arrowdown:()=>step(-1), s:()=>step(-1),
+              arrowleft:()=>turn('left'), a:()=>turn('left'),
+              arrowright:()=>turn('right'), d:()=>turn('right') };
+  if(m[k]){ e.preventDefault(); m[k](); }
+});
+
+/* ══ 소리 — 전부 실시간 합성 ══════════════════════
+   절차적 텍스처와 같은 이유로 음원 파일을 쓰지 않는다: 받을 게 없으니
+   로딩 실패도 라이선스도 없고, 무엇보다 거리·방향에 따라 소리 자체를
+   실시간으로 바꿀 수 있다 (심장박동이 빨라지는 건 재생속도가 아니라 진짜 간격이다).
+
+   무서움은 음량이 아니라 셋에서 나온다:
+     ① 불규칙 — 언제 날지 모르는 소리 (방 소리·부정맥)
+     ② 방향   — 뒤에서 나는 소리 (그것의 숨·끄는 발소리)
+     ③ 대비   — 스팅어가 터질 때 나머지를 죽여서 낙차를 만든다
+   그래서 마스터 앞에 리미터를 두고 크게 밀어도 찌그러지지 않게 했다.
+   자동재생 정책상 AudioContext 는 반드시 사용자 제스처 안에서 만들어야 한다. */
+const SND = {
+  ctx:null, master:null, limiter:null, bed:null, verb:null, muted:false,
+  droneLp:null, tensGain:null,
+  gDrone:null, gRoom:null, gHeart:null, gWhis:null, gWhisNear:null, gAmb:null,
+  gStep:null, gSting:null,
+  white:null, brown:null,
+  hbTimer:null, hbNext:0, wsTimer:null, ambTimer:null, brTimer:null,
+  lastSting:-99, sighted:false,
+  vol:{ master:0.95, drone:0.85, heart:0.95, whisper:0.8, amb:0.85 },
+  onStep:true, onSting:true,
+};
+
+/* 노이즈 버퍼는 한 번만 만들어 두고 재생 오프셋만 바꿔 쓴다.
+   발소리마다 버퍼를 새로 채우면 GC 가 프레임을 갉아먹는다. */
+function makeNoise(sec, brown){
+  const c = SND.ctx, len = Math.floor(c.sampleRate*sec);
+  const buf = c.createBuffer(1, len, c.sampleRate);
+  const d = buf.getChannelData(0);
+  let last = 0;
+  for(let i=0;i<len;i++){
+    const w = Math.random()*2-1;
+    if(brown){ last = (last + 0.02*w)/1.02; d[i] = last*3.5; }
+    else d[i] = w;
+  }
+  return buf;
+}
+// 노이즈를 지수적으로 감쇠시키면 그게 곧 방의 잔향이다. 복도 하나 분량.
+function makeIR(sec, decay){
+  const c = SND.ctx, len = Math.floor(c.sampleRate*sec);
+  const buf = c.createBuffer(2, len, c.sampleRate);
+  for(let ch=0; ch<2; ch++){
+    const d = buf.getChannelData(ch);
+    for(let i=0;i<len;i++){
+      const t = i/len;
+      const pre = t < 0.008 ? t/0.008 : 1;   // 초반 8ms 를 죽여 벽을 조금 떼어놓는다
+      d[i] = (Math.random()*2-1) * Math.pow(1-t, decay) * pre;
+    }
+  }
+  return buf;
+}
+function noiseSrc(t, dur, brown){
+  const c = SND.ctx, n = c.createBufferSource();
+  n.buffer = brown ? SND.brown : SND.white;
+  n.loop = true;
+  n.start(t, Math.random()*(n.buffer.duration - 0.05));
+  n.stop(t + dur);
+  return n;
+}
+// tanh 커브 — 깨끗한 사인을 살짝 찢어서 '기계가 아닌 것'처럼 만든다
+function shaper(amount){
+  const n = 1024, curve = new Float32Array(n);
+  for(let i=0;i<n;i++) curve[i] = Math.tanh((i*2/n - 1)*amount);
+  const ws = SND.ctx.createWaveShaper();
+  ws.curve = curve; ws.oversample = '2x';
+  return ws;
+}
+// 레이어 하나 = 자기 볼륨 노드 + 리버브 센드. bed 에 붙은 층만 스팅어에 눌린다.
+function sndBus(send, direct){
+  const c = SND.ctx, g = c.createGain();
+  g.connect(direct ? SND.master : SND.bed);
+  if(send > 0){ const s = c.createGain(); s.gain.value = send; g.connect(s); s.connect(SND.verb); }
+  return g;
+}
+
+function sndStart(){
+  if(SND.ctx){ if(SND.ctx.state === 'suspended') SND.ctx.resume().then(sndPill); sndPill(); return; }
+  if(SND.muted) return;
+  try{
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if(!AC) throw new Error('이 브라우저에 Web Audio 가 없다');
+    const c = SND.ctx = new AC();
+    SND.white = makeNoise(2, false);
+    SND.brown = makeNoise(4, true);
+
+    // 리미터 — 이게 있어야 층을 다 깔고도 크게 밀 수 있다. 없으면 스팅어에서 찌그러진다.
+    SND.limiter = c.createDynamicsCompressor();
+    SND.limiter.threshold.value = -8; SND.limiter.knee.value = 6;
+    SND.limiter.ratio.value = 12;     SND.limiter.attack.value = 0.003;
+    SND.limiter.release.value = 0.25;
+    SND.limiter.connect(c.destination);
+
+    SND.master = c.createGain(); SND.master.gain.value = 0.0001;
+    SND.master.connect(SND.limiter);
+    SND.bed = c.createGain(); SND.bed.gain.value = 1;   // 스팅어가 눌러 낙차를 만드는 지점
+    SND.bed.connect(SND.master);
+
+    SND.verb = c.createConvolver(); SND.verb.buffer = makeIR(2.6, 2.4);
+    const wet = c.createGain(); wet.gain.value = 1.0;
+    SND.verb.connect(wet); wet.connect(SND.master);
+
+    SND.gDrone = sndBus(0.25); SND.gRoom  = sndBus(0.35);
+    SND.gHeart = sndBus(0.10); SND.gWhis  = sndBus(0.85);
+    // 귀 옆 속삭임은 잔향을 거의 안 준다 — 그래야 방 안이 아니라 내 옆이 된다
+    SND.gWhisNear = sndBus(0.15, true);
+    SND.gAmb   = sndBus(1.10);                       // 방 소리는 잔향이 거리를 만든다
+    SND.gStep  = sndBus(0.45, true);
+    SND.gSting = sndBus(0.70, true);                 // 자기가 만든 낙차에 자기가 눌리면 안 된다
+
+    buildDrone();
+    buildTension();
+    applyVol();
+    // 정적에서 소리가 튀어나오면 그것부터가 놀라움이다. 1.6초에 걸쳐 올린다.
+    SND.master.gain.cancelScheduledValues(c.currentTime);
+    SND.master.gain.setValueAtTime(0.0001, c.currentTime);
+    SND.master.gain.exponentialRampToValueAtTime(Math.max(0.0002, SND.vol.master), c.currentTime + 1.6);
+
+    SND.hbNext = c.currentTime + 0.6;
+    hbTick();
+    scheduleWhisper();
+    scheduleRoom();
+    scheduleBreath();
+    sndPill();
+  }catch(e){
+    SND.ctx = null;
+    showErr('소리를 시작하지 못했다', e.message || e);
+  }
+}
+
+/* 드론 — 낮은 배음 몇 개를 로우패스 뒤에 두고 아주 느리게 흔든다.
+   음정이 아니라 '방이 내는 소리'로 들려야 하므로 어택도 비브라토도 없다. */
+function buildDrone(){
+  const c = SND.ctx;
+  const lp = SND.droneLp = c.createBiquadFilter();
+  lp.type = 'lowpass'; lp.frequency.value = 200; lp.Q.value = 0.8;
+  lp.connect(SND.gDrone);
+  // 51.9Hz 는 36.7Hz 의 증4도(트라이톤)다. 절대 협화되지 않아 귀가 계속 불편하다.
+  [[36.71,'sine',0.95],[51.91,'sine',0.30],[55.00,'sawtooth',0.26],
+   [73.42,'sine',0.44],[98.00,'sine',0.11]]
+    .forEach(([f,type,a], i) => {
+      const o = c.createOscillator(); o.type = type;
+      o.frequency.value = f; o.detune.value = (i-2)*9;   // 살짝 어긋나야 맥놀이가 생긴다
+      const g = c.createGain(); g.gain.value = a*0.55;
+      const lfo = c.createOscillator(); lfo.frequency.value = 0.029 + i*0.019;
+      const lg = c.createGain(); lg.gain.value = a*0.45;
+      lfo.connect(lg); lg.connect(g.gain); lfo.start();
+      o.connect(g); g.connect(lp); o.start();
+    });
+  // 룸톤 — 브라운 노이즈를 좁은 밴드로 천천히 훑으면 복도 바람이 된다
+  const n = c.createBufferSource(); n.buffer = SND.brown; n.loop = true;
+  const bp = c.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 330; bp.Q.value = 0.9;
+  const swp = c.createOscillator(); swp.frequency.value = 0.041;
+  const swg = c.createGain(); swg.gain.value = 170;
+  swp.connect(swg); swg.connect(bp.frequency); swp.start();
+  const g = c.createGain(); g.gain.value = 0.55;
+  n.connect(bp); bp.connect(g); g.connect(SND.gRoom); n.start();
+}
+
+/* 긴장 클러스터 — 그것이 시야에 있는 동안만 켜지는 고음 층.
+   스팅어가 '놀람'이면 이건 '보고 있다'는 감각이다. 계속 켜두면 무뎌지므로 시야에 묶는다. */
+function buildTension(){
+  const c = SND.ctx;
+  const g = SND.tensGain = c.createGain(); g.gain.value = 0.0001;
+  const hp = c.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 900;
+  hp.connect(g); g.connect(SND.gDrone);
+  [1244.5, 1318.5, 1661.2].forEach((f, i) => {
+    const o = c.createOscillator(); o.type = 'sawtooth';
+    o.frequency.value = f; o.detune.value = (i-1)*13;
+    const og = c.createGain(); og.gain.value = 0.028;
+    // 불규칙한 흔들림 — 정확한 음은 악기로 들리고, 흔들리는 음은 생물로 들린다
+    const vib = c.createOscillator(); vib.frequency.value = 3.1 + i*1.7;
+    const vg = c.createGain(); vg.gain.value = 5 + i*3;
+    vib.connect(vg); vg.connect(o.detune); vib.start();
+    o.connect(og); og.connect(hp); o.start();
+  });
+}
+function setTension(on){
+  if(!SND.ctx) return;
+  const t = SND.ctx.currentTime;
+  SND.tensGain.gain.cancelScheduledValues(t);
+  SND.tensGain.gain.setTargetAtTime(on ? 1 : 0.0001, t, on ? 0.45 : 0.3);
+}
+
+/* 그것과의 거리를 0(멀다)~1(코앞) 로. 심장박동·드론 밝기·숨소리가 여기 물린다. */
+function dread(){
+  const dx = camera.position.x - creature.position.x;
+  const dz = camera.position.z - creature.position.z;
+  const cells = Math.hypot(dx, dz)/CELL;
+  return Math.max(0, Math.min(1, 1 - (cells - 0.7)/4.3));
+}
+/* 그것이 내 기준 어느 쪽에 있는가. 스테레오만으로는 앞뒤를 못 만들기 때문에
+   뒤쪽이면 로우패스를 내려 어둡게 만든다 — 실제로 귀가 앞뒤를 가르는 단서가 그거다. */
+function creatureDir(){
+  const dx = creature.position.x - camera.position.x;
+  const dz = creature.position.z - camera.position.z;
+  const len = Math.max(1e-4, Math.hypot(dx, dz));
+  const y = camera.rotation.y, sy = Math.sin(y), cy = Math.cos(y);
+  return {
+    pan:  (dx*cy - dz*sy)/len,       // 오른쪽 성분
+    front:(-dx*sy - dz*cy)/len,      // 앞쪽 성분 (음수면 등 뒤)
+  };
+}
+function spatial(){
+  const c = SND.ctx, d = creatureDir();
+  const pan = c.createStereoPanner(); pan.pan.value = Math.max(-1, Math.min(1, d.pan*0.95));
+  const lp = c.createBiquadFilter(); lp.type = 'lowpass';
+  lp.frequency.value = d.front > 0 ? 5200 : 1500;   // 등 뒤는 어둡게
+  lp.connect(pan); pan.connect(SND.gAmb);
+  return lp;
+}
+
+/* 심장박동 — setInterval 로 찍으면 박자가 밀린다.
+   오디오 시계로 200ms 앞을 미리 예약하고 타이머는 그 예약만 채운다. */
+function thump(t, amp){
+  const c = SND.ctx;
+  const o = c.createOscillator(); o.type = 'sine';
+  o.frequency.setValueAtTime(66, t);
+  o.frequency.exponentialRampToValueAtTime(32, t + 0.17);
+  const ws = shaper(1.8);                    // 살짝 찢어야 가슴을 친다
+  const g = c.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(amp, t + 0.012);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.30);
+  o.connect(ws); ws.connect(g); g.connect(SND.gHeart); o.start(t); o.stop(t + 0.33);
+  // 근육이 조이는 층 — 사인만 있으면 그냥 베이스 음이지 심장이 아니다
+  const n = noiseSrc(t, 0.2, true);
+  const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 170;
+  const ng = c.createGain();
+  ng.gain.setValueAtTime(0.0001, t);
+  ng.gain.exponentialRampToValueAtTime(amp*0.45, t + 0.01);
+  ng.gain.exponentialRampToValueAtTime(0.0001, t + 0.17);
+  n.connect(lp); lp.connect(ng); ng.connect(SND.gHeart);
+}
+// 귀 안쪽에서 도는 피 — 아주 가까울 때만 박에 얹는다
+function bloodRush(t, amp){
+  const c = SND.ctx;
+  const n = noiseSrc(t, 0.42, true);
+  const bp = c.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = 1.6;
+  bp.frequency.setValueAtTime(240, t);
+  bp.frequency.exponentialRampToValueAtTime(90, t + 0.4);
+  const g = c.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(amp, t + 0.05);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.4);
+  n.connect(bp); bp.connect(g); g.connect(SND.gHeart);
+}
+function hbTick(){
+  if(!SND.ctx) return;
+  const c = SND.ctx;
+  while(SND.hbNext < c.currentTime + 0.2){
+    const d = dread();
+    const bpm = 54 + d*84;                         // 멀면 54, 코앞이면 138
+    const amp = 0.26 + d*0.74;
+    thump(SND.hbNext, amp);
+    thump(SND.hbNext + (60/bpm)*0.33, amp*0.55);   // 두 번째 박 (dub)
+    if(d > 0.55) bloodRush(SND.hbNext, (d-0.55)*0.5);
+    let gap = 60/bpm;
+    // 부정맥 — 아주 가까우면 가끔 한 박이 어긋난다. 규칙적인 공포는 금방 배경이 된다.
+    if(d > 0.7 && Math.random() < 0.16) gap *= (Math.random() < 0.5 ? 0.55 : 1.7);
+    SND.hbNext += gap;
+  }
+  SND.hbTimer = setTimeout(hbTick, 90);
+}
+
+/* 속삭임 — 노이즈를 밴드패스로 훑으면 자음처럼 들린다.
+   가끔 두 음절만 나오게 하는데, 그게 "까-꿍" 이다. */
+function whisper(){
+  if(!SND.ctx) return;
+  const c = SND.ctx, t0 = c.currentTime + 0.05;
+  // 30% 는 '귀 바로 옆' — 잔향을 끊고 바짝 붙이면 방 안이 아니라 내 옆이 된다
+  const inEar = Math.random() < 0.3;
+  const pan = c.createStereoPanner();
+  pan.pan.value = inEar ? (Math.random() < 0.5 ? -0.97 : 0.97) : (Math.random()*2 - 1)*0.9;
+  const dry = c.createGain(); dry.gain.value = inEar ? 1.9 : 1;
+  pan.connect(dry); dry.connect(inEar ? SND.gWhisNear : SND.gWhis);
+  const kkakkung = Math.random() < 0.42;
+  const syl = kkakkung ? [0.15, 0.26]
+                       : [0.12, 0.09, 0.18, 0.11].slice(0, 2 + (Math.random()*3|0));
+  let at = t0;
+  syl.forEach((d, i) => {
+    const n = noiseSrc(at, d + 0.06, false);
+    const hp = c.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = inEar ? 240 : 360;
+    const bp = c.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = inEar ? 6 : 4.5;
+    const f0 = kkakkung ? (i ? 820 : 1350) : 700 + Math.random()*900;
+    bp.frequency.setValueAtTime(f0, at);
+    bp.frequency.linearRampToValueAtTime(f0*(0.6 + Math.random()*0.7), at + d);
+    const g = c.createGain();
+    g.gain.setValueAtTime(0.0001, at);
+    g.gain.exponentialRampToValueAtTime(inEar ? 0.55 : 0.42, at + d*0.35);
+    g.gain.exponentialRampToValueAtTime(0.0001, at + d);
+    n.connect(hp); hp.connect(bp); bp.connect(g); g.connect(pan);
+    at += d + 0.03 + Math.random()*0.06;
+  });
+}
+function scheduleWhisper(){
+  // 규칙적이면 무섭지 않다. 간격을 넓게 흩뿌리고, 가까울수록 잦아진다.
+  const gap = (4.5 + Math.random()*12) * (1 - dread()*0.5);
+  SND.wsTimer = setTimeout(() => { whisper(); scheduleWhisper(); }, gap*1000);
+}
+
+/* 방 소리 — 이 게임에서 제일 무서운 층이다.
+   그것과 무관하게, 아무 때나, 아무 데서나 난다. 원인을 모르는 소리가 제일 오래 남는다. */
+function farBus(){
+  const c = SND.ctx;
+  const pan = c.createStereoPanner(); pan.pan.value = (Math.random()*2 - 1)*0.95;
+  const lp = c.createBiquadFilter(); lp.type = 'lowpass';
+  lp.frequency.value = 700 + Math.random()*1400;   // 멀리 있는 소리는 고역이 먼저 죽는다
+  lp.connect(pan); pan.connect(SND.gAmb);
+  return lp;
+}
+function knock(){
+  const c = SND.ctx, out = farBus();
+  let t = c.currentTime + 0.05;
+  const hits = 2 + (Math.random()*3|0);
+  for(let i=0;i<hits;i++){
+    const o = c.createOscillator(); o.type = 'triangle';
+    const f = 120 + Math.random()*90;
+    o.frequency.setValueAtTime(f, t);
+    o.frequency.exponentialRampToValueAtTime(f*0.45, t + 0.09);
+    const g = c.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.55 - i*0.06, t + 0.005);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.16);
+    o.connect(g); g.connect(out); o.start(t); o.stop(t + 0.18);
+    const n = noiseSrc(t, 0.05, false);
+    const bp = c.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 1900; bp.Q.value = 1.4;
+    const ng = c.createGain();
+    ng.gain.setValueAtTime(0.35, t);
+    ng.gain.exponentialRampToValueAtTime(0.0001, t + 0.05);
+    n.connect(bp); bp.connect(ng); ng.connect(out);
+    t += 0.17 + Math.random()*0.26;   // 박자가 어긋나야 사람이 두드리는 것처럼 들린다
+  }
+}
+function drag(){
+  const c = SND.ctx, out = farBus();
+  const t = c.currentTime + 0.05, dur = 0.8 + Math.random()*1.1;
+  const n = noiseSrc(t, dur + 0.2, true);
+  const bp = c.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = 1.3;
+  bp.frequency.setValueAtTime(900 + Math.random()*700, t);
+  bp.frequency.exponentialRampToValueAtTime(220, t + dur);
+  const g = c.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.5, t + 0.12);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  // 끌리다 걸리는 떨림 — 매끄러우면 바람이고, 걸려야 무거운 게 끌리는 소리가 된다
+  const jit = c.createOscillator(); jit.frequency.value = 7 + Math.random()*9;
+  const jg = c.createGain(); jg.gain.value = 0.22;
+  jit.connect(jg); jg.connect(g.gain); jit.start(t); jit.stop(t + dur);
+  n.connect(bp); bp.connect(g); g.connect(out);
+}
+function creak(){
+  const c = SND.ctx, out = farBus();
+  const t = c.currentTime + 0.05, dur = 0.9 + Math.random()*0.9;
+  const o = c.createOscillator(); o.type = 'sawtooth';
+  const f = 150 + Math.random()*180;
+  o.frequency.setValueAtTime(f, t);
+  o.frequency.linearRampToValueAtTime(f*(1.5 + Math.random()), t + dur);
+  const bp = c.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 1100; bp.Q.value = 7;
+  const g = c.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.30, t + 0.2);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  // 삐걱거림의 정체는 붙었다 미끄러지는 반복이다. 빠른 진폭 떨림으로 흉내낸다.
+  const st = c.createOscillator(); st.frequency.value = 17 + Math.random()*22;
+  const sg = c.createGain(); sg.gain.value = 0.5;
+  st.connect(sg); sg.connect(g.gain); st.start(t); st.stop(t + dur);
+  o.connect(bp); bp.connect(g); g.connect(out); o.start(t); o.stop(t + dur + 0.05);
+}
+function scheduleRoom(){
+  const r = Math.random();
+  (r < 0.4 ? knock : r < 0.72 ? drag : creak)();
+  SND.ambTimer = setTimeout(scheduleRoom, (7 + Math.random()*16)*1000);
+}
+
+/* 그것의 숨 — 가까워지면 들린다. 등 뒤에 있으면 어둡게, 오른쪽에 있으면 오른쪽에서.
+   보이지 않는데 방향이 있는 소리가 화면 안의 무엇보다 무섭다. */
+function breath(){
+  if(!SND.ctx) return;
+  const d = dread();
+  if(d < 0.18) return;
+  const c = SND.ctx, out = spatial();
+  const t = c.currentTime + 0.05;
+  const amp = 0.18 + d*0.6;
+  // 들이쉬고(길게·높게) 내쉰다(짧게·낮게)
+  [[0.62, 620, 1], [0.42, 330, 0.72]].forEach(([dur, f, k], i) => {
+    const at = t + (i ? 0.72 : 0);
+    const n = noiseSrc(at, dur + 0.08, false);
+    const bp = c.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = 1.1;
+    bp.frequency.setValueAtTime(f, at);
+    bp.frequency.exponentialRampToValueAtTime(f*(i ? 0.55 : 1.7), at + dur);
+    const g = c.createGain();
+    g.gain.setValueAtTime(0.0001, at);
+    g.gain.exponentialRampToValueAtTime(amp*k, at + dur*0.45);
+    g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
+    // 젖은 떨림 — 목에 뭔가 걸린 소리
+    const rat = c.createOscillator(); rat.frequency.value = 24 + Math.random()*14;
+    const rg = c.createGain(); rg.gain.value = 0.35;
+    rat.connect(rg); rg.connect(g.gain); rat.start(at); rat.stop(at + dur);
+    n.connect(bp); bp.connect(g); g.connect(out);
+  });
+}
+// 그것이 발을 끄는 소리 — 보이지 않을 때만. 보이면 눈이 답을 주므로 소리가 할 일이 없다.
+function creatureStep(){
+  if(!SND.ctx) return;
+  const c = SND.ctx, out = spatial(), t = c.currentTime + 0.05;
+  const n = noiseSrc(t, 0.5, true);
+  const bp = c.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = 1.0;
+  bp.frequency.setValueAtTime(700, t);
+  bp.frequency.exponentialRampToValueAtTime(180, t + 0.42);
+  const g = c.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.4*dread(), t + 0.06);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.45);
+  n.connect(bp); bp.connect(g); g.connect(out);
+  const o = c.createOscillator(); o.type = 'sine';
+  o.frequency.setValueAtTime(70, t + 0.36);
+  o.frequency.exponentialRampToValueAtTime(34, t + 0.46);
+  const og = c.createGain();
+  og.gain.setValueAtTime(0.0001, t + 0.36);
+  og.gain.exponentialRampToValueAtTime(0.45*dread(), t + 0.375);
+  og.gain.exponentialRampToValueAtTime(0.0001, t + 0.5);
+  o.connect(og); og.connect(out); o.start(t + 0.35); o.stop(t + 0.52);
+}
+function scheduleBreath(){
+  const d = dread();
+  if(d > 0.18){ if(!SND.sighted && Math.random() < 0.45) creatureStep(); else breath(); }
+  SND.brTimer = setTimeout(scheduleBreath, (2.2 + Math.random()*4.5)*(1 - d*0.5)*1000);
+}
+
+/* 내 발소리 — 저역 쿵 + 바닥을 스치는 모래 두 겹 */
+function scuff(t, amp){
+  const c = SND.ctx;
+  const n = noiseSrc(t, 0.12, false);
+  const bp = c.createBiquadFilter(); bp.type = 'bandpass';
+  bp.frequency.value = 1700 + Math.random()*1100; bp.Q.value = 1.1;
+  const g = c.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(amp, t + 0.008);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.1);
+  n.connect(bp); bp.connect(g); g.connect(SND.gStep);
+}
+function footstep(back){
+  if(!SND.ctx || !SND.onStep) return;
+  const c = SND.ctx, t = c.currentTime + 0.02;
+  const o = c.createOscillator(); o.type = 'sine';
+  o.frequency.setValueAtTime((back ? 74 : 92)*(0.94 + Math.random()*0.12), t);
+  o.frequency.exponentialRampToValueAtTime(38, t + 0.1);
+  const g = c.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.55, t + 0.008);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.17);
+  o.connect(g); g.connect(SND.gStep); o.start(t); o.stop(t + 0.19);
+  scuff(t + 0.004, 0.32);
+  scuff(t + 0.085, 0.14);
+}
+// 돌아설 때 옷깃 — 회전하는 쪽으로 패닝해서 방향감을 준다
+function rustle(side){
+  if(!SND.ctx || !SND.onStep) return;
+  const c = SND.ctx, t = c.currentTime + 0.02;
+  const n = noiseSrc(t, 0.3, false);
+  const bp = c.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = 0.9;
+  bp.frequency.setValueAtTime(900, t);
+  bp.frequency.exponentialRampToValueAtTime(2100, t + 0.22);
+  const pan = c.createStereoPanner(); pan.pan.value = side === 'left' ? -0.6 : 0.6;
+  const g = c.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.18, t + 0.05);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.26);
+  n.connect(bp); bp.connect(g); g.connect(pan); pan.connect(SND.gStep);
+}
+
+/* 스팅어 — 복도 끝에 그것이 서 있는 게 '처음' 보일 때만.
+   매번 울리면 그건 배경음악이지 놀람이 아니다. */
+function creatureInSight(){
+  const d = DIRS[player.dir];
+  let x = player.x, y = player.y;
+  for(let i=0;i<GRID.length;i++){
+    x += d.dx; y += d.dy;
+    if(!walkable(x, y)) return false;
+    if(x === CREATURE.x && y === CREATURE.y) return true;
+  }
+  return false;
+}
+function sting(){
+  if(!SND.ctx || !SND.onSting) return;
+  const c = SND.ctx, t = c.currentTime + 0.01;
+  if(t - SND.lastSting < 5) return;
+  SND.lastSting = t;
+  // 나머지를 깔아뭉갠다 — 소리를 키우는 것보다 주변을 죽이는 게 더 크게 들린다
+  SND.bed.gain.cancelScheduledValues(t);
+  SND.bed.gain.setTargetAtTime(0.18, t, 0.015);
+  SND.bed.gain.setTargetAtTime(1.0, t + 1.1, 0.55);
+
+  const ws = shaper(3.4);                       // 클러스터를 찢어 금속처럼 만든다
+  ws.connect(SND.gSting);
+  // 단2도·증4도로 쌓은 불협 클러스터 — 어떤 조성으로도 안 풀린다
+  [233.1, 246.9, 329.6, 466.2, 493.9].forEach((f, i) => {
+    const o = c.createOscillator(); o.type = i ? 'sawtooth' : 'square';
+    o.frequency.setValueAtTime(f*(1 + Math.random()*0.012), t);
+    o.frequency.exponentialRampToValueAtTime(f*0.5, t + 1.3);
+    const g = c.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.26/(i + 1), t + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 1.4);
+    o.connect(g); g.connect(ws); o.start(t); o.stop(t + 1.45);
+  });
+  // 서브 드롭 — 가슴을 치는 층
+  const s = c.createOscillator(); s.type = 'sine';
+  s.frequency.setValueAtTime(92, t);
+  s.frequency.exponentialRampToValueAtTime(26, t + 1.0);
+  const sg = c.createGain();
+  sg.gain.setValueAtTime(0.0001, t);
+  sg.gain.exponentialRampToValueAtTime(1.15, t + 0.03);
+  sg.gain.exponentialRampToValueAtTime(0.0001, t + 1.1);
+  s.connect(sg); sg.connect(SND.gSting); s.start(t); s.stop(t + 1.15);
+  // 쇠 긁는 히스 한 겹
+  const n = noiseSrc(t, 0.7, false);
+  const bp = c.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 2700; bp.Q.value = 1.2;
+  const ng = c.createGain();
+  ng.gain.setValueAtTime(0.0001, t);
+  ng.gain.exponentialRampToValueAtTime(0.42, t + 0.015);
+  ng.gain.exponentialRampToValueAtTime(0.0001, t + 0.65);
+  n.connect(bp); bp.connect(ng); ng.connect(SND.gSting);
+  // 꼬리 — 1.4초 뒤 잔향 속에서 한 번 더 훑고 사라진다
+  const tail = noiseSrc(t + 1.2, 1.2, true);
+  const tf = c.createBiquadFilter(); tf.type = 'bandpass'; tf.Q.value = 2.2;
+  tf.frequency.setValueAtTime(1600, t + 1.2);
+  tf.frequency.exponentialRampToValueAtTime(180, t + 2.3);
+  const tg = c.createGain();
+  tg.gain.setValueAtTime(0.0001, t + 1.2);
+  tg.gain.exponentialRampToValueAtTime(0.2, t + 1.3);
+  tg.gain.exponentialRampToValueAtTime(0.0001, t + 2.3);
+  tail.connect(tf); tf.connect(tg); tg.connect(SND.gSting);
+}
+// 이동·회전이 끝난 시점에만 검사한다. 시야에 '들어온 순간' 한 번만 터뜨리기 위해서다.
+function sndSight(){
+  const now = creatureInSight();
+  if(now && !SND.sighted) sting();
+  if(now !== SND.sighted) setTension(now);
+  SND.sighted = now;
+}
+
+/* 상태를 오디오 그래프에 반영. ctx 가 없으면 값만 기억해 둔다. */
+function applyVol(){
+  if(!SND.ctx) return;
+  const t = SND.ctx.currentTime, v = SND.vol;
+  SND.master.gain.setTargetAtTime(SND.muted ? 0 : v.master, t, 0.05);
+  SND.gDrone.gain.setTargetAtTime(v.drone*0.85, t, 0.1);
+  SND.gRoom.gain.setTargetAtTime(v.drone*0.5,  t, 0.1);
+  SND.gHeart.gain.setTargetAtTime(v.heart*0.9, t, 0.1);
+  SND.gWhis.gain.setTargetAtTime(v.whisper*0.85, t, 0.1);
+  SND.gWhisNear.gain.setTargetAtTime(v.whisper*0.95, t, 0.1);
+  SND.gAmb.gain.setTargetAtTime(v.amb*0.9, t, 0.1);
+  SND.gStep.gain.setTargetAtTime(0.8, t, 0.1);
+  SND.gSting.gain.setTargetAtTime(0.95, t, 0.1);
+}
+// 가까울수록 드론이 밝아진다 — 커지는 게 아니라 '드러난다'
+function sndDread(d){
+  if(!SND.ctx) return;
+  const t = SND.ctx.currentTime;
+  SND.droneLp.frequency.setTargetAtTime(180 + d*620, t, 0.4);
+  SND.gDrone.gain.setTargetAtTime(SND.vol.drone*(0.85 + d*0.5), t, 0.4);
+}
+function sndPill(){
+  const live = !!(SND.ctx && SND.ctx.state === 'running' && !SND.muted);
+  const p = $('pAudio');
+  p.textContent = live ? '소리 켜짐' : (SND.ctx ? '소리 멈춤' : '소리 꺼짐');
+  p.classList.toggle('on', live);
+  $('sndOn').textContent = live ? '소리 끄기' : '소리 켜기';
+}
+
+/* ══ 그래프 ═══════════════════════════════════════ */
+function makeGraph(cv){
+  const ctx = cv.getContext('2d'), raw = [], fil = [], N = 150;
+  const resize = () => { cv.width = cv.clientWidth*devicePixelRatio; cv.height = cv.clientHeight*devicePixelRatio; };
+  resize(); addEventListener('resize', resize);
+  return {
+    push(r,f){ raw.push(r); fil.push(f); if(raw.length>N){ raw.shift(); fil.shift(); } },
+    draw(trig,rel,scale){
+      const w = cv.width, h = cv.height, mid = h/2, y = v => mid-(v/scale)*(h/2)*0.9;
+      ctx.clearRect(0,0,w,h);
+      ctx.lineWidth = devicePixelRatio;
+      ctx.setLineDash([3*devicePixelRatio,3*devicePixelRatio]);
+      [[trig,'#b81d24'],[-trig,'#b81d24'],[rel,'#4a4342'],[-rel,'#4a4342']].forEach(p => {
+        ctx.strokeStyle = p[1]; ctx.beginPath(); ctx.moveTo(0,y(p[0])); ctx.lineTo(w,y(p[0])); ctx.stroke();
+      });
+      ctx.setLineDash([]);
+      ctx.strokeStyle = '#3a3332'; ctx.beginPath(); ctx.moveTo(0,mid); ctx.lineTo(w,mid); ctx.stroke();
+      const line = (arr,c,lw) => {
+        ctx.strokeStyle = c; ctx.lineWidth = lw*devicePixelRatio; ctx.beginPath();
+        arr.forEach((v,i) => { const px = (i/(N-1))*w; i ? ctx.lineTo(px,y(v)) : ctx.moveTo(px,y(v)); });
+        ctx.stroke();
+      };
+      line(raw,'#5c5250',1); line(fil,'#cfc6b4',1.7);
+    }
+  };
+}
+const graphYaw = makeGraph($('gYaw')), graphSize = makeGraph($('gSize'));
+
+/* ══ UI 배선 ══════════════════════════════════════ */
+const P = {};
+function bind(id, fmt, fn){
+  const el = $(id), out = $(id+'v');
+  const run = () => { P[id] = parseFloat(el.value); if(out) out.textContent = fmt(P[id]); if(fn) fn(P[id]); };
+  el.addEventListener('input', run); run();
+}
+bind('mincut', v => v.toFixed(2), v => [fYaw,fPitch,fSize].forEach(f => f.mincutoff = v));
+bind('beta',   v => v.toFixed(3), v => [fYaw,fPitch,fSize].forEach(f => f.beta = v));
+bind('yTrig',  v => v.toFixed(2));
+bind('yRel',   v => v.toFixed(2));
+bind('sTrig',  v => v.toFixed(2));
+bind('sRel',   v => v.toFixed(3));
+bind('cool',   v => String(v));
+bind('peekAmt',v => String(v));
+bind('fog',    v => String(v), v => scene.fog.density = v);
+bind('lamp',   v => String(v), v => flashlight.intensity = v);
+bind('amb',    v => v.toFixed(3), v => ambient.intensity = v);
+$('tPost').onchange = e => { postOn = e.target.checked; bloom.enabled = postOn; grade.enabled = postOn; };
+bind('inferHz', v => String(v));
+bind('peekTau', v => v.toFixed(2));
+bind('vMaster', v => v.toFixed(2), v => { SND.vol.master  = v; applyVol(); });
+bind('vDrone',  v => v.toFixed(2), v => { SND.vol.drone   = v; applyVol(); });
+bind('vHeart',  v => v.toFixed(2), v => { SND.vol.heart   = v; applyVol(); });
+bind('vWhis',   v => v.toFixed(2), v => { SND.vol.whisper = v; applyVol(); });
+bind('vAmb',    v => v.toFixed(2), v => { SND.vol.amb     = v; applyVol(); });
+$('sStep').onchange  = e => SND.onStep  = e.target.checked;
+$('sSting').onchange = e => SND.onSting = e.target.checked;
+$('sndOn').addEventListener('click', () => {
+  if(!SND.ctx){ SND.muted = false; sndStart(); return; }
+  SND.muted = !SND.muted; applyVol(); sndPill();
+});
+/* 자동재생 정책 때문에 AudioContext 는 첫 사용자 제스처 안에서만 만들 수 있다.
+   무엇을 눌렀든 그 순간을 쓴다 — 단, 소리 버튼 자신은 제외한다.
+   그러지 않으면 pointerdown 이 켜고 click 이 곧바로 꺼버린다. */
+const sndUnlock = e => {
+  if(e.target && e.target.closest && e.target.closest('#sndOn')) return;
+  removeEventListener('pointerdown', sndUnlock);
+  removeEventListener('keydown', sndUnlock);
+  if(!SND.muted) sndStart();
+};
+addEventListener('pointerdown', sndUnlock);
+addEventListener('keydown', sndUnlock);
+// 탭을 벗어나면 멈춘다. 보이지도 않는 창에서 계속 속삭이면 그건 버그다.
+document.addEventListener('visibilitychange', () => {
+  if(!SND.ctx) return;
+  if(document.hidden) SND.ctx.suspend().then(sndPill);
+  else if(!SND.muted) SND.ctx.resume().then(sndPill);
+});
+sndPill();
+function applyPixelRatio(){
+  renderer.setPixelRatio(parseFloat($('pxRatio').value));
+  renderer.setSize(innerWidth, innerHeight);
+  composer.setSize(innerWidth, innerHeight);
+  sizeBloomHalf();
+}
+$('pxRatio').onchange = applyPixelRatio;
+['thread','delegate','useBlend'].forEach(id => {
+  $(id).addEventListener('change', () => {
+    landmarker = null;                       // 옵션은 생성 시점에 굳으므로 버린다
+    if(stream) $('start').textContent = '카메라 다시 시작 필요';
+  });
+});
+// 무엇이 지원되는지 화면에 남긴다 — 실패 원인 파악용
+$('diag').innerHTML = [
+  'TrackProcessor <b>' + (typeof MediaStreamTrackProcessor !== 'undefined' ? '있음' : '없음') + '</b>',
+  'OffscreenCanvas <b>' + (typeof OffscreenCanvas !== 'undefined' ? '있음' : '없음') + '</b>',
+  'createImageBitmap <b>' + (typeof createImageBitmap !== 'undefined' ? '있음' : '없음') + '</b>',
+].join(' · ');
+$('fast').addEventListener('click', () => {
+  $('pxRatio').value = '1';     applyPixelRatio();
+  $('tPost').checked = false;   $('tPost').onchange({ target:$('tPost') });
+  $('tShadow').checked = false; $('tShadow').onchange({ target:$('tShadow') });
+  $('inferHz').value = '15';    $('inferHz').dispatchEvent(new Event('input'));
+  $('fast').textContent = '적용됨 — 개별 토글로 되돌릴 수 있다';
+});
+$('tShadow').onchange = e => {
+  renderer.shadowMap.enabled = e.target.checked;
+  scene.traverse(o => { if(o.isMesh) o.material.needsUpdate = true; });
+};
+$('dump').addEventListener('click', () => {
+  console.log('[까꿍 S2 튜닝값]', {
+    mincutoff:P.mincut, beta:P.beta,
+    yawTrigger:P.yTrig, yawRelease:P.yRel,
+    sizeTrigger:P.sTrig, sizeRelease:P.sRel,
+    cooldownMs:P.cool, peekDeg:P.peekAmt,
+    invertYaw:$('invY').checked, invertSize:$('invS').checked,
+    forwardMode:$('fwdMode').value, distanceSource:$('distSrc').value,
+    holdForward:$('holdFwd').checked, suppressOnYaw:$('supYaw').checked,
+    fog:P.fog, lamp:P.lamp, ambient:P.amb,
+    pixelRatio:$('pxRatio').value, inferHz:P.inferHz, peekTau:P.peekTau,
+    thread:$('thread').value, pumpMode:worker ? pumpMode : 'n/a',
+    delegate:$('delegate').value,
+    blendshapes:$('useBlend').checked, trackProcessor:trackProcessorOK,
+    sound:{ started:!!SND.ctx, muted:SND.muted, master:SND.vol.master, drone:SND.vol.drone,
+            heart:SND.vol.heart, whisper:SND.vol.whisper,
+            amb:SND.vol.amb, steps:SND.onStep, stinger:SND.onSting,
+            dread:Number(dread().toFixed(2)) },
+    renderFps:renderFps, inferFps:inferFps, inferMs:Number(inferMs.toFixed(1)),
+  });
+  $('dump').textContent = '콘솔에 출력됨 (F12)';
+  setTimeout(() => $('dump').textContent = '튜닝값 콘솔 출력', 1800);
+});
+
+/* ══ MediaPipe ════════════════════════════════════ */
+let landmarker = null, stream = null, faceOn = false;
+async function initMainLandmarker(){
+  if(landmarker) return landmarker;
+  const fileset = await FilesetResolver.forVisionTasks(WASM);
+  landmarker = await FaceLandmarker.createFromOptions(fileset, {
+    baseOptions:{ modelAssetPath:MODEL, delegate:$('delegate').value },
+    outputFacialTransformationMatrixes:true,
+    outputFaceBlendshapes:$('useBlend').checked || $('fwdMode').value === 'jaw',
+    runningMode:'VIDEO', numFaces:1,
+  });
+  setThreadPill('메인');
+  return landmarker;
+}
+let worker = null, workerReady = false, workerFrames = 0;
+let pumpMode = 'track', bitmapInFlight = false, bitmapAcc = 0, readyTimer = 0;
+const trackProcessorOK = (typeof MediaStreamTrackProcessor !== 'undefined');
+function setThreadPill(text, warn){
+  const p = $('pThread');
+  p.textContent = '스레드 ' + text;
+  p.classList.toggle('warn', !!warn);
+}
+const video = $('cam'), dots = $('dots'), dctx = dots.getContext('2d');
+let calibrating = false, calibUntil = 0, calibBuf = [];
+const base = { yaw:0, pitch:0, size:null, dist:null, jaw:0 };
+let lastSeen = 0;
+// 목표 엿보기 각 — 추론(30fps)이 갱신하고 렌더(60fps)가 보간한다
+const peekTarget = { yaw:0, pitch:0 };
+const peekNow = { yaw:0, pitch:0 };
+
+$('start').addEventListener('click', async () => {
+  if(stream){ stopCam(); return; }
+  $('start').disabled = true; $('start').textContent = '모델 로딩 중…';
+  try {
+    if($('thread').value === 'main') await initMainLandmarker();
+    stream = await navigator.mediaDevices.getUserMedia({
+      video:{ width:{ideal:640}, height:{ideal:480}, facingMode:'user' }, audio:false });
+    video.srcObject = stream; await video.play();
+    dots.width = 640; dots.height = 480;
+    if($('thread').value === 'worker') startWorker();
+    else setThreadPill('메인 (히칭 예상)', true);
+    $('start').textContent = '카메라 정지'; $('start').disabled = false;
+    $('calib').disabled = false;
+  } catch(err){
+    console.error(err);
+    $('start').textContent = '카메라 시작'; $('start').disabled = false;
+    showErr('카메라 또는 모델 초기화 실패', err.message);
+  }
+});
+function startWorker(){
+  try {
+    worker = new Worker(WORKER_URL, { type:'module' });
+  } catch(err){ workerFail('워커 생성 실패: ' + err.message); return; }
+  worker.onerror = e => workerFail(
+    '워커 스크립트 로드/실행 오류' + (e.message ? ': ' + e.message : '') +
+    (e.filename ? ' @ ' + e.filename + ':' + e.lineno : '') +
+    ' — DevTools 콘솔에 상세가 남습니다');
+  worker.onmessageerror = () => workerFail('워커 메시지 직렬화 실패');
+  // ready 가 안 오면 조용히 멈추는 대신 이유를 알린다
+  clearTimeout(readyTimer);
+  readyTimer = setTimeout(() => {
+    if(!workerReady) workerFail('15초 안에 준비 완료 신호가 오지 않았습니다 (모델 다운로드 실패 가능)');
+  }, 15000);
+  worker.onmessage = e => {
+    const d = e.data;
+    if(d.t === 'ready'){
+      workerReady = true;
+      clearTimeout(readyTimer);
+      pumpMode = d.pump || pumpMode;
+      setThreadPill('워커 · ' + (d.pump === 'track' ? '트랙' : 'bitmap') + ' · ' + d.delegate);
+      return;
+    }
+    if(d.t === 'fail'){ workerFail('[' + (d.stage || '?') + '] ' + d.msg); return; }
+    inferMs = inferMs*0.8 + d.ms*0.2;
+    workerFrames++;
+    if(d.t === 'none'){ onNoFace(performance.now()); return; }
+    onSignals(d.s, performance.now());
+    if(d.pts) drawPoints(d.pts);
+  };
+  const base0 = { t:'init', wasm:WASM, model:MODEL, delegate:$('delegate').value,
+                  blend:$('useBlend').checked || $('fwdMode').value === 'jaw',
+                  w:480, h:360 };
+  // 원본 트랙은 <video> 가 계속 써야 하므로 복제본만 워커로 넘긴다
+  let sent = false;
+  if(trackProcessorOK){
+    try {
+      const clone = stream.getVideoTracks()[0].clone();
+      worker.postMessage(Object.assign({ track:clone }, base0), [clone]);
+      pumpMode = 'track'; sent = true;
+    } catch(err){ console.warn('[까꿍] 트랙 전송 불가 → bitmap 경로:', err.message); }
+  }
+  if(!sent){
+    worker.postMessage(Object.assign({ track:null }, base0));
+    pumpMode = 'bitmap';
+  }
+  setThreadPill(pumpMode === 'track' ? '워커 준비 중…' : '워커 준비 중… (bitmap)');
+}
+// bitmap 폴백 펌프. 한 장이 처리될 때까지 다음 장을 만들지 않는다(백프레셔).
+function pumpBitmap(dt){
+  if(!worker || !workerReady || pumpMode !== 'bitmap') return;
+  if(!stream || video.readyState < 2) return;
+  bitmapAcc += dt;
+  if(bitmapAcc < 1/Math.max(1, P.inferHz) || bitmapInFlight) return;
+  bitmapAcc = 0; bitmapInFlight = true;
+  createImageBitmap(video, { resizeWidth:480, resizeHeight:360, resizeQuality:'low' })
+    .then(bmp => { if(worker) worker.postMessage({ t:'bitmap', bmp }, [bmp]); else bmp.close(); })
+    .catch(() => {})
+    .finally(() => { bitmapInFlight = false; });
+}
+async function workerFail(msg){
+  clearTimeout(readyTimer);
+  if(worker){ worker.terminate(); worker = null; }
+  workerReady = false;
+  $('thread').value = 'main';
+  setThreadPill('메인 폴백', true);
+  showErr('워커 추론 실패 — 메인 스레드로 계속합니다', msg);
+  // 드롭다운만 바꾸면 landmarker 가 없어 infer() 가 즉시 리턴하고
+  // 캘리브레이션이 영원히 끝나지 않는다. 실제로 메인 모델을 만들어야 한다.
+  resetCalib();
+  try { await initMainLandmarker(); }
+  catch(err){ showErr('메인 추론 초기화도 실패', err.message); }
+}
+function resetCalib(){
+  calibrating = false; calibBuf = [];
+  $('calib').disabled = !stream;
+  $('calib').textContent = '중립 자세 캘리브레이션 (2초)';
+}
+function drawPoints(pts){
+  dctx.clearRect(0,0,dots.width,dots.height);
+  dctx.fillStyle = 'rgba(207,198,180,.5)';
+  for(let i=0;i<pts.length;i+=2) dctx.fillRect(pts[i]*dots.width-1, pts[i+1]*dots.height-1, 2, 2);
+}
+function stopCam(){
+  clearTimeout(readyTimer);
+  if(worker){ worker.terminate(); worker = null; workerReady = false; }
+  bitmapInFlight = false; bitmapAcc = 0;
+  calibrating = false; calibBuf = [];
+  setThreadPill('--');
+  if(stream) stream.getTracks().forEach(t => t.stop());
+  stream = null; video.srcObject = null; faceOn = false;
+  base.size = null; facePlane.visible = false;
+  $('start').textContent = '카메라 시작'; $('calib').disabled = true;
+  setMode(false);
+}
+$('calib').addEventListener('click', () => {
+  calibrating = true; calibBuf = []; calibUntil = performance.now()+2000;
+  $('calib').disabled = true; $('calib').textContent = '측정 중… 정면을 보세요';
+});
+function setMode(on){
+  faceOn = on;
+  const p = $('pMode');
+  p.textContent = on ? '얼굴 모드' : '키보드 모드';
+  p.classList.toggle('on', on); p.classList.toggle('warn', !on);
+}
+
+function signals(lm, mtx, blend){
+  const nose = lm[1], L = lm[234], R = lm[454], top = lm[10], chin = lm[152];
+  // 부호: 고개를 왼쪽으로 돌리면 음수 → 좌회전. 실측으로 확정된 방향.
+  const dL = nose.x - L.x, dR = R.x - nose.x;
+  const yaw = (dR - dL)/Math.max(1e-4, dL + dR);
+  const faceH = Math.max(1e-4, chin.y - top.y);
+  const pitch = (nose.y - (top.y + chin.y)/2)/faceH;
+  let minX=1,maxX=0,minY=1,maxY=0;
+  for(const p of lm){
+    if(p.x<minX)minX=p.x; if(p.x>maxX)maxX=p.x;
+    if(p.y<minY)minY=p.y; if(p.y>maxY)maxY=p.y;
+  }
+  // 행렬 병진(translation) — 회전에 영향받지 않는 거리 신호.
+  // bbox 면적은 고개를 돌리면 함께 줄어들어 후진이 오발동한다 (크로스토크).
+  const dist = mtx ? Math.abs(mtx[14]) : 0;
+  let jaw = 0;
+  if(blend && blend.categories){
+    const c = blend.categories.find(x => x.categoryName === 'jawOpen');
+    if(c) jaw = c.score;
+  }
+  return { yaw, pitch, size:Math.sqrt(Math.max(0,(maxX-minX)*(maxY-minY))),
+           dist, jaw, box:{ minX, maxX, minY, maxY } };
+}
+function paintFace(b){
+  if(!$('faceTex').checked){ facePlane.visible = false; return; }
+  const vw = video.videoWidth, vh = video.videoHeight;
+  if(!vw) return;
+  const pad = 0.14;
+  const sx = Math.max(0,(b.minX - pad*(b.maxX-b.minX)))*vw;
+  const sy = Math.max(0,(b.minY - pad*(b.maxY-b.minY)))*vh;
+  const sw = Math.min(vw-sx,(b.maxX-b.minX)*(1+2*pad)*vw);
+  const sh = Math.min(vh-sy,(b.maxY-b.minY)*(1+2*pad)*vh);
+  fctx.save();
+  fctx.filter = 'grayscale(1) contrast(1.7) brightness(0.74)';
+  fctx.translate(256,0); fctx.scale(-1,1);           // 거울 반전
+  fctx.drawImage(video, sx, sy, sw, sh, 0, 0, 256, 256);
+  fctx.restore();
+  faceTexture.needsUpdate = true;
+  facePlane.visible = true;
+}
+
+/* ══ 추론 루프 — 30fps ════════════════════════════ */
+let inferAcc = 0, inferFps = 0, inferN = 0, inferT = 0, inferMs = 0, gAcc = 0;
+function infer(now, dt){
+  if(worker || !landmarker) return;          // 워커 모드에서는 메인 추론을 돌리지 않는다
+  if(!stream || video.readyState < 2) return;
+  inferAcc += dt;
+  if(inferAcc < 1/Math.max(1, P.inferHz)) return;
+  inferAcc = 0;
+
+  let res = null;
+  const t0 = performance.now();
+  try { res = landmarker.detectForVideo(video, now); } catch(e){ return; }
+  // 동기 호출이므로 이 시간이 그대로 프레임 예산에서 빠진다
+  inferMs = inferMs*0.8 + (performance.now()-t0)*0.2;
+  inferN++; inferT += dt;
+  if(inferT >= 0.5){
+    inferFps = Math.round(inferN/inferT);
+    $('pInfer').textContent = '추론 '+inferFps+' fps';
+    $('pInferMs').textContent = '추론 '+inferMs.toFixed(1)+' ms';
+    $('pInferMs').classList.toggle('warn', inferMs > 16);
+    inferN = 0; inferT = 0;
+  }
+
+  const found = res && res.faceLandmarks && res.faceLandmarks.length > 0;
+  if(!found){ onNoFace(now); return; }
+  const lm = res.faceLandmarks[0];
+  dctx.clearRect(0,0,dots.width,dots.height);
+  dctx.fillStyle = 'rgba(207,198,180,.5)';
+  for(let i=0;i<lm.length;i+=3){          // 3개당 1개만 — 미리보기용이므로 충분
+    const p = lm[i];
+    dctx.fillRect(p.x*dots.width-1, p.y*dots.height-1, 2, 2);
+  }
+
+  const mtx = (res.facialTransformationMatrixes && res.facialTransformationMatrixes.length)
+    ? res.facialTransformationMatrixes[0].data : null;
+  const blend = (res.faceBlendshapes && res.faceBlendshapes.length)
+    ? res.faceBlendshapes[0] : null;
+  onSignals(signals(lm, mtx, blend), now);
+}
+
+function onNoFace(now){
+  dctx.clearRect(0,0,dots.width,dots.height);
+  if(now - lastSeen > 1500){ setMode(false); peekTarget.yaw = peekTarget.pitch = 0; }
+}
+
+/* 신호 처리 — 메인 추론과 워커 추론이 공유하는 단일 경로.
+   필터·게이트·엿보기는 비용이 미미하므로 메인 스레드에 남긴다. */
+function onSignals(s, now){
+  lastSeen = now;
+  paintFace(s.box);
+
+  if(calibrating){
+    calibBuf.push(s);
+    if(now >= calibUntil){
+      const n = calibBuf.length;
+      base.yaw = calibBuf.reduce((a,b)=>a+b.yaw,0)/n;
+      base.pitch = calibBuf.reduce((a,b)=>a+b.pitch,0)/n;
+      base.size = calibBuf.reduce((a,b)=>a+b.size,0)/n;
+      base.dist = calibBuf.reduce((a,b)=>a+b.dist,0)/n;
+      base.jaw  = calibBuf.reduce((a,b)=>a+b.jaw,0)/n;
+      calibrating = false;
+      $('calib').disabled = false; $('calib').textContent = '중립 자세 재캘리브레이션 (2초)';
+      setMode(true);
+    }
+    return;
+  }
+  if(base.size === null) return;
+
+  const t = now/1000;
+  const rawYaw = (s.yaw - base.yaw) * ($('invY').checked ? -1 : 1);
+  const yaw = fYaw.filter(rawYaw, t);
+  const pitch = fPitch.filter(s.pitch - base.pitch, t);
+
+  // ── 전후 신호 ──────────────────────────────────
+  let rawSize;
+  if($('distSrc').value === 'matrix' && base.dist){
+    // 카메라에 가까워지면 |z| 가 줄어든다 → 부호 반전해서 "기울이면 +"
+    rawSize = -(s.dist - base.dist)/base.dist;
+  } else {
+    rawSize = (s.size - base.size)/base.size;
+  }
+  if($('fwdMode').value === 'jaw'){
+    // 입을 벌리면 전진, 벌리지 않은 상태에서 몸을 빼면 후진
+    const jawV = s.jaw - base.jaw;
+    rawSize = (jawV > 0.12) ? jawV*2 : Math.min(0, rawSize);
+  }
+  rawSize *= ($('invS').checked ? -1 : 1);
+  // 크로스토크 억제 — 고개가 중립을 벗어난 동안 전후 신호를 죽인다.
+  // bbox 면적은 yaw 에 따라 줄어들므로 회전이 후진으로 오발동한다.
+  if($('supYaw').checked && $('distSrc').value === 'bbox' && Math.abs(yaw) > P.yRel*1.5) rawSize = 0;
+  const size = fSize.filter(rawSize, t);
+
+  graphYaw.push(rawYaw, yaw);
+  graphSize.push(rawSize, size);
+  gAcc += 1;
+  if(gAcc >= 3){                          // 추론 3회당 1회만 다시 그린다
+    gAcc = 0;
+    graphYaw.draw(P.yTrig, P.yRel, 0.7);
+    graphSize.draw(P.sTrig, P.sRel, 0.45);
+  }
+
+  gateYaw.update(yaw, P.yTrig, P.yRel, P.cool, now, sg => turn(sg > 0 ? 'right' : 'left'), false);
+  gateSize.update(size, P.sTrig, P.sRel, P.cool, now, sg => step(sg > 0 ? 1 : -1), $('holdFwd').checked);
+
+  // 연속 층 — 임계값 미만 구간을 실제 카메라 회전으로 (기획서 §2.2.1)
+  const k = Math.PI/180 * P.peekAmt;
+  peekTarget.yaw = -Math.max(-1, Math.min(1, yaw/Math.max(0.001, P.yTrig))) * k;
+  peekTarget.pitch = -Math.max(-1, Math.min(1, pitch/0.09)) * k * 0.45;
+}
+
+/* ══ 렌더 루프 — 60fps ════════════════════════════ */
+let last = performance.now(), rAcc = 0, rN = 0, renderFps = 0;
+function loop(now){
+  requestAnimationFrame(loop);
+  const dt = Math.min((now-last)/1000, 0.05); last = now;
+
+  infer(now, dt);
+  pumpBitmap(dt);
+
+  if(anim){
+    anim.t = Math.min(1, anim.t + dt/0.4);
+    const e = ease(anim.t);
+    if(anim.kind === 'move'){
+      camera.position.x = anim.fx + (anim.tx-anim.fx)*e;
+      camera.position.z = anim.fz + (anim.tz-anim.fz)*e;
+      bob += dt*11;
+    } else camYaw = anim.from + (anim.to-anim.from)*e;
+    // 시야 판정은 이동·회전이 끝난 뒤 한 번만 한다 (스팅어를 한 번만 터뜨리기 위해)
+    if(anim.t >= 1){ anim = null; sndSight(); }
+  }
+
+  // 저주기 추론 신호를 렌더 프레임레이트로 보간 (기획서 §2.2.4).
+  // tau 가 작으면 반응이 빠르지만 계단이 보이고, 크면 매끄럽지만 늦다.
+  const lerp = 1 - Math.exp(-dt/Math.max(0.005, P.peekTau));
+  peekNow.yaw += (peekTarget.yaw - peekNow.yaw) * lerp;
+  peekNow.pitch += (peekTarget.pitch - peekNow.pitch) * lerp;
+
+  const idle = now/1000;
+  camera.position.y = EYE + Math.sin(idle*0.9)*0.012 + Math.sin(bob)*0.035;
+  camera.rotation.set(
+    peekNow.pitch + Math.sin(idle*0.7)*0.006,
+    camYaw + peekNow.yaw,
+    Math.sin(idle*0.5)*0.004, 'YXZ');
+
+  creature.lookAt(camera.position.x, 0, camera.position.z);
+  grade.uniforms.uTime.value = idle;
+
+  if(postOn) composer.render(); else renderer.render(scene, camera);
+
+  rN++; rAcc += dt;
+  if(rAcc >= 0.5){
+    if(worker){
+      inferFps = Math.round(workerFrames/rAcc); workerFrames = 0;
+      $('pInfer').textContent = '추론 ' + inferFps + ' fps';
+      $('pInferMs').textContent = '추론 ' + inferMs.toFixed(1) + ' ms';
+      $('pInferMs').classList.remove('warn');   // 워커에서는 프레임 예산과 무관
+    }
+    renderFps = Math.round(rN/rAcc);
+    const frameMs = (rAcc/rN)*1000;
+    $('pRender').textContent = '렌더 '+renderFps+' fps';
+    $('pFrame').textContent = '프레임 '+frameMs.toFixed(1)+' ms';
+    $('pFrame').classList.toggle('warn', frameMs > 20);
+    $('pRender').classList.toggle('warn', renderFps < 50);
+    $('pCell').textContent = 'CELL '+player.x+','+player.y;
+    const dd = dread();
+    sndDread(dd);
+    $('pDread').textContent = '근접 '+Math.round(dd*100)+'%';
+    $('pDread').classList.toggle('warn', dd > 0.66);
+    rN = 0; rAcc = 0;
+  }
+}
+addEventListener('resize', () => {
+  camera.aspect = innerWidth/innerHeight; camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight); composer.setSize(innerWidth, innerHeight);
+  sizeBloomHalf();
+});
+sizeBloomHalf();
+$('boot').remove();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

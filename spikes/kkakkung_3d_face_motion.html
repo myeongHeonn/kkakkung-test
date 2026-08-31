@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="한 칸씩 움직이는 3D 미로에서 아는 얼굴과 코너에서 마주치는 공포 체험 데모 — 까꿍" />
+  <meta name="color-scheme" content="dark" />
+  <title>까꿍 — 한 칸 뒤의 얼굴</title>
+  <style>
+    :root{--black:#060404;--panel:#0e0c0b;--panel2:#151212;--line:#322c2b;--text:#ebe4d9;--muted:#a39a97;--bone:#cfc6b4;--pale:#7e9490;--blood:#b81d24;--yellow:#b8912f;--radius:20px;--shadow:0 30px 90px rgba(0,0,0,.66)}
+    *{box-sizing:border-box}
+    html{scroll-behavior:smooth;background:var(--black)}
+    body{margin:0;overflow-x:hidden;color:var(--text);background:radial-gradient(circle at 70% 10%,#1f1817 0,transparent 26%),var(--black);font-family:Pretendard,"Noto Sans KR","Apple SD Gothic Neo",Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;line-height:1.6;word-break:keep-all}
+    button{font:inherit}
+    .skip-link{position:fixed;z-index:999;left:14px;top:-70px;padding:10px 14px;color:#000;background:#fff;border-radius:10px}.skip-link:focus{top:14px}
+    .container{width:min(calc(100% - 40px),1180px);margin:auto}
+    .topbar{border-bottom:1px solid rgba(255,255,255,.1);background:rgba(5,7,6,.82);backdrop-filter:blur(18px)}
+    .topbar-inner{min-height:64px;display:flex;align-items:center;justify-content:space-between;gap:20px}
+    .brand{display:flex;align-items:baseline;gap:9px;color:#fff;font-size:19px;font-weight:950;letter-spacing:.02em}.brand em{color:#6f6663;font-size:9px;font-style:normal;font-weight:950;letter-spacing:.22em}
+    .brand-grid{width:26px;height:26px;display:grid;grid-template-columns:repeat(3,1fr);gap:2px;transform:rotate(4deg)}
+    .brand-grid i{background:#ebe4d9}.brand-grid i:nth-child(2),.brand-grid i:nth-child(4),.brand-grid i:nth-child(8){background:#393332}.brand-grid i:nth-child(5){background:var(--bone);box-shadow:0 0 17px rgba(207,198,180,.7)}
+    .prototype-tag{padding:7px 10px;color:var(--bone);border:1px solid #463837;border-radius:999px;font-size:10px;font-weight:950;letter-spacing:.1em}
+    .hero{padding:54px 0 78px}
+    .intro{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(240px,.6fr);gap:32px;align-items:end;margin-bottom:28px}
+    .eyebrow{margin-bottom:12px;color:var(--bone);font-size:11px;font-weight:950;letter-spacing:.16em}
+    h1{max-width:830px;margin:0;font-size:clamp(43px,6.2vw,82px);line-height:.98;letter-spacing:-.06em}
+    h1 span{color:var(--bone)}
+    .intro-copy{margin:0;color:var(--muted);font-size:16px}.intro-copy strong{color:#fff}
+    .demo-shell{overflow:hidden;background:#0a0808;border:1px solid #352f2e;border-radius:var(--radius);box-shadow:var(--shadow)}
+    .demo-head{min-height:64px;padding:13px 18px;display:flex;align-items:center;justify-content:space-between;gap:16px;border-bottom:1px solid #2b2626;background:#121010}
+    .demo-head small{display:block;color:#7d7574;font-size:9px;font-weight:950;letter-spacing:.13em}.demo-head strong{font-size:14px}
+    .guide-route{display:flex;align-items:center;gap:7px;color:#e1dad9;font-size:10px;font-weight:900}.guide-route b{display:grid;place-items:center;min-width:28px;height:28px;padding:0 8px;color:#000;background:var(--bone);border-radius:8px}.guide-route i{color:#6e6766;font-style:normal}
+    .sim-layout{display:grid;grid-template-columns:minmax(0,1fr) 260px;min-height:500px}
+    .stage-wrap{min-width:0;border-right:1px solid #2b2626}
+    .maze-stage{position:relative;height:500px;overflow:hidden;isolation:isolate;background:#070505;perspective:820px}
+    .corridor-world{position:absolute;inset:-3%;overflow:hidden;background:#030202;transform-style:preserve-3d;transition:filter .38s,transform .38s}
+    .cell-scene,.cell-slice,.cell-ceiling,.cell-floor,.cell-side{position:absolute;inset:0}
+    .cell-scene{overflow:hidden;background:radial-gradient(circle at 50% 51%,#151111 0,#030202 53%)}
+    .cell-slice{pointer-events:none}
+    .cell-ceiling{background:linear-gradient(180deg,#0b0908 0,#2b2423 100%),repeating-linear-gradient(90deg,transparent 0 44px,rgba(255,255,255,.08) 45px 47px)}
+    .cell-floor{background:linear-gradient(90deg,transparent 49.4%,rgba(207,198,180,.35) 50%,transparent 50.6%),repeating-linear-gradient(170deg,transparent 0 32px,rgba(255,255,255,.09) 33px 35px),linear-gradient(180deg,#2b2423,#0a0808)}
+    .wall-face,.front-wall{background-color:#47403f;background-image:linear-gradient(90deg,rgba(0,0,0,.34),transparent 28%,rgba(255,255,255,.06) 57%,rgba(0,0,0,.32)),repeating-linear-gradient(0deg,transparent 0 31px,rgba(7,9,7,.5) 32px 35px),repeating-linear-gradient(90deg,transparent 0 54px,rgba(8,10,8,.5) 55px 58px);filter:drop-shadow(0 0 10px rgba(0,0,0,.78))}
+    .cell-slice[data-depth="2"] .wall-face{filter:brightness(.82) drop-shadow(0 0 9px rgba(0,0,0,.82))}.cell-slice[data-depth="3"] .wall-face,.cell-slice[data-depth="4"] .wall-face{filter:brightness(.68) drop-shadow(0 0 8px #000)}
+    .path-opening{background:radial-gradient(ellipse at center,#0f0908 0,#000 68%);filter:drop-shadow(0 0 7px rgba(207,198,180,.52))}
+    .path-opening:after{content:"";position:absolute;inset:0;background:repeating-linear-gradient(0deg,transparent 0 27px,rgba(207,198,180,.16) 28px 29px)}
+    .opening-label{position:absolute;z-index:4;padding:3px 6px;color:#e2dac6;background:#0a0707;border:1px solid rgba(207,198,180,.52);border-radius:4px;font-size:7px;font-weight:950;letter-spacing:.1em;white-space:nowrap;transform:translate(-50%,-50%)}
+    .cell-frame{position:absolute;z-index:5;border:1px solid rgba(207,198,180,.28);box-shadow:0 0 14px rgba(207,198,180,.07),0 0 18px rgba(0,0,0,.78) inset;pointer-events:none}
+    .cell-boundary{position:absolute;z-index:6;height:2px;background:linear-gradient(90deg,transparent,var(--bone) 13%,var(--bone) 87%,transparent);box-shadow:0 0 9px rgba(207,198,180,.36);transform:translateY(-1px)}
+    .cell-floor-label{position:absolute;z-index:7;left:50%;padding:2px 6px;color:#e2dac6;background:rgba(3,5,3,.74);border:1px solid rgba(207,198,180,.24);border-radius:4px;font-size:7px;font-weight:950;letter-spacing:.13em;transform:translate(-50%,-50%);white-space:nowrap}
+    .front-wall{position:absolute;z-index:9;display:grid;place-items:center;overflow:hidden;border:2px solid #9a8f80;box-shadow:0 0 0 1px #161414,0 0 72px rgba(0,0,0,.95),0 0 80px rgba(0,0,0,.82) inset}
+    .front-wall:before{content:"";position:absolute;inset:0;background:linear-gradient(90deg,transparent 49.5%,rgba(207,198,180,.22) 50%,transparent 50.5%),linear-gradient(180deg,rgba(255,255,255,.11),transparent 24%,rgba(0,0,0,.36));pointer-events:none}
+    .front-wall span{position:relative;padding:5px 8px;color:#070505;background:var(--bone);border-radius:4px;font-size:8px;font-weight:950;letter-spacing:.12em;box-shadow:0 0 24px rgba(207,198,180,.44)}
+    .vignette{position:absolute;z-index:8;inset:0;background:radial-gradient(circle at 50% 51%,transparent 0 32%,rgba(0,0,0,.08) 54%,rgba(0,0,0,.62) 100%);pointer-events:none}
+    .scanlines{position:absolute;z-index:12;inset:0;background:repeating-linear-gradient(180deg,transparent 0 3px,rgba(255,255,255,.02) 4px 5px);pointer-events:none}
+    .reticle{position:absolute;z-index:13;left:50%;top:50%;width:18px;height:18px;border:1px solid rgba(255,255,255,.55);border-radius:50%;transform:translate(-50%,-50%)}
+    .stage-hud{position:absolute;z-index:20;inset:14px 14px auto;display:flex;justify-content:space-between;gap:8px;pointer-events:none}.hud-chip{padding:6px 9px;color:#e8e3e3;background:rgba(6,8,6,.78);border:1px solid rgba(255,255,255,.18);border-radius:999px;font-size:9px;font-weight:950;letter-spacing:.08em}.hud-chip.live:before{content:"";display:inline-block;width:6px;height:6px;margin-right:6px;background:var(--pale);border-radius:50%;box-shadow:0 0 10px var(--pale)}
+    .view-status{position:absolute;z-index:20;left:14px;top:52px;max-width:calc(100% - 28px);padding:7px 10px;color:#efe6da;background:rgba(5,8,5,.86);border:1px solid rgba(207,198,180,.38);border-radius:7px;font-size:9px;font-weight:850;letter-spacing:.035em;box-shadow:0 8px 24px rgba(0,0,0,.36);pointer-events:none}
+    .creature-avatar{position:absolute;z-index:10;left:65%;top:50%;width:180px;height:260px;opacity:0;transform:translate(-50%,-45%) scale(.12);transform-origin:50% 65%;filter:blur(8px);transition:opacity .2s,transform .34s cubic-bezier(.12,.78,.18,1),filter .25s;pointer-events:none}
+    .creature-head{position:absolute;z-index:6;left:13px;top:0;width:154px;height:172px;overflow:hidden;background:#d8d1d0;border:3px solid var(--blood);border-radius:47% 53% 45% 55%/43% 48% 52% 57%;box-shadow:0 0 0 7px rgba(184,29,36,.09),0 0 38px rgba(184,29,36,.36);transform:rotate(-2deg)}
+    .creature-head:after{content:"";position:absolute;inset:0;background:linear-gradient(105deg,rgba(255,255,255,.16),transparent 30%,rgba(0,0,0,.12));mix-blend-mode:multiply;pointer-events:none}
+    .creature-head video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:0;filter:grayscale(1) contrast(1.75) brightness(.62);transform:scaleX(-1) scale(1.18)}body.camera-on .creature-head video{opacity:1}
+    .creature-placeholder{position:absolute;inset:0;color:#0b0909;background:radial-gradient(circle at 52% 38%,#ede6e5 0,#b8b0af 48%,#7c7574 100%)}body.camera-on .creature-placeholder{opacity:0}
+    .creature-placeholder .eye{position:absolute;top:39%;width:18px;height:8px;background:#090808;border-radius:55%}.creature-placeholder .eye.left{left:25%;transform:rotate(8deg)}.creature-placeholder .eye.right{right:22%;transform:rotate(-7deg)}.creature-placeholder .mouth{position:absolute;left:50%;bottom:25%;width:31px;height:12px;border:4px solid #0a0909;border-top:0;border-radius:0 0 50% 50%;transform:translateX(-50%) rotate(3deg)}
+    .creature-torso{position:absolute;z-index:4;left:68px;top:160px;width:44px;height:50px;background:linear-gradient(90deg,#080707,#393332 55%,#0a0909);border:1px solid #504a49;border-radius:13px 13px 20px 20px;box-shadow:0 13px 24px rgba(0,0,0,.65)}
+    .creature-arm,.creature-leg{position:absolute;z-index:3;background:#191717;border:1px solid #453f3e;border-radius:999px;transform-origin:top center}.creature-arm{top:166px;width:9px;height:106px}.creature-arm.left{left:52px;transform:rotate(11deg)}.creature-arm.right{right:51px;transform:rotate(-13deg)}.creature-leg{top:205px;width:10px;height:114px}.creature-leg.left{left:72px;transform:rotate(4deg)}.creature-leg.right{right:72px;transform:rotate(-5deg)}
+    .creature-label{position:absolute;z-index:8;left:50%;top:332px;transform:translateX(-50%);padding:4px 8px;color:#fff;background:#7d1418;border-radius:6px;font-size:8px;font-weight:950;white-space:nowrap;letter-spacing:.08em}
+    .maze-stage[data-encounter="far"] .creature-avatar{opacity:.62;transform:translate(-50%,-45%) scale(.5);filter:grayscale(1) brightness(.55) blur(1px)}.maze-stage[data-encounter="near"] .creature-avatar{opacity:.9;transform:translate(-50%,-45%) scale(.74);filter:grayscale(.8) brightness(.78)}.maze-stage[data-encounter="contact"] .creature-avatar{opacity:1;transform:translate(-50%,-43%) scale(1.04);filter:none;animation:creatureShock .36s cubic-bezier(.12,.82,.18,1),creatureIdle 3.2s ease-in-out .4s infinite}
+    .maze-stage[data-motion="forward"] .corridor-world{animation:stepForward .48s ease-out}.maze-stage[data-motion="backward"] .corridor-world{animation:stepBackward .48s ease-out}.maze-stage[data-motion="turn-left"] .corridor-world{animation:turnLeft .42s ease-out}.maze-stage[data-motion="turn-right"] .corridor-world{animation:turnRight .42s ease-out}.maze-stage[data-motion="blocked"] .corridor-world{animation:wallBump .28s ease-out}
+    .map-panel{padding:18px;display:flex;flex-direction:column;gap:15px;background:#100e0d}.map-title{display:flex;justify-content:space-between;align-items:end;gap:8px}.map-title small{color:#797271;font-size:9px;font-weight:950;letter-spacing:.12em}.map-title strong{font-size:13px}.map-title span{color:var(--bone);font-size:10px;font-weight:950}
+    .mini-map{aspect-ratio:1;display:grid;grid-template-columns:repeat(7,1fr);gap:3px;padding:9px;background:#070505;border:1px solid #352f2e;border-radius:14px}.mini-cell{position:relative;min-width:0;background:#141111;border-radius:3px}.mini-cell.wall{background:#352f2e}.mini-cell.path{box-shadow:inset 0 0 0 1px #211c1c}.mini-cell.visited{background:#3a2f2e;box-shadow:inset 0 0 0 1px #6d5a58}.mini-cell.current{z-index:2;background:var(--bone);box-shadow:0 0 14px rgba(207,198,180,.55)}.mini-cell.current:after{content:attr(data-arrow);position:absolute;left:50%;top:50%;color:#070505;font-size:13px;font-weight:950;transform:translate(-50%,-53%)}.mini-cell.monster-known{background:#6b1416;box-shadow:0 0 12px rgba(184,29,36,.5)}.mini-cell.monster-known:after{content:"!";position:absolute;left:50%;top:50%;color:#fff;font-size:11px;font-weight:950;transform:translate(-50%,-53%)}
+    .map-legend{display:flex;flex-wrap:wrap;gap:10px;color:#938c8b;font-size:9px}.map-legend span:before{content:"";display:inline-block;width:7px;height:7px;margin-right:5px;border-radius:2px;background:#3a2f2e}.map-legend span:nth-child(2):before{background:var(--bone)}.map-legend span:nth-child(3):before{background:#6b1416}
+    .side-actions{display:grid;gap:7px;margin-top:auto}.side-btn,.move-btn{min-height:44px;padding:9px 11px;color:#eae5e5;background:#1a1717;border:1px solid #403938;border-radius:10px;font-weight:900;cursor:pointer}.side-btn:hover,.side-btn:focus-visible,.move-btn:hover,.move-btn:focus-visible{color:#070505;background:var(--bone);border-color:var(--bone);outline:2px solid #fff;outline-offset:2px}.side-btn.camera{color:#070505;background:var(--bone);border-color:var(--bone)}.side-btn.reset{font-size:11px}
+    .camera-status{min-height:48px;margin:0;padding:8px 9px;color:#958d8c;background:#0a0808;border-radius:8px;font-size:9px}
+    .controls{padding:14px 16px 16px;border-top:1px solid #2b2626;background:#0d0b0a}.move-controls{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}.move-btn{display:flex;align-items:center;justify-content:center;gap:7px}.move-btn b{color:var(--bone)}.move-btn:hover b,.move-btn:focus-visible b{color:#000}
+    .status-row{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:9px}.status{min-height:39px;padding:8px 10px;color:#b0a8a7;background:#070505;border-radius:8px;font-size:10px}.status strong{color:var(--pale);letter-spacing:.06em}
+    .feel{padding:0 0 72px}.feel-head{display:flex;justify-content:space-between;gap:24px;align-items:end;margin-bottom:16px}.feel-head h2{max-width:720px;margin:0;font-size:clamp(30px,4.4vw,52px);line-height:1.03;letter-spacing:-.045em}.feel-head p{max-width:360px;margin:0;color:var(--muted);font-size:13px}
+    .beats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.beat{min-height:175px;padding:20px;background:#131111;border:1px solid #2f2928;border-radius:16px}.beat span{display:grid;place-items:center;width:31px;height:31px;margin-bottom:34px;color:#070505;background:var(--bone);border-radius:9px;font-size:11px;font-weight:950}.beat:nth-child(3) span{color:#fff;background:#8f1b20}.beat h3{margin:0 0 7px;font-size:18px}.beat p{margin:0;color:var(--muted);font-size:12px}
+    .tiny-note{margin-top:12px;padding:14px 16px;display:flex;justify-content:space-between;gap:20px;color:#8b8382;background:#0c0a09;border:1px solid #272222;border-radius:13px;font-size:10px}.tiny-note strong{color:#e2dcdb}
+    footer{padding:20px 0;border-top:1px solid #262222;color:#797271;font-size:10px}.footer-inner{display:flex;justify-content:space-between;gap:20px}footer strong{color:#fff}
+    @keyframes stepForward{0%{transform:scale(1)}48%{transform:scale(1.13) translateY(1.5%)}100%{transform:scale(1)}}@keyframes stepBackward{0%{transform:scale(1)}48%{transform:scale(.88) translateY(-1%)}100%{transform:scale(1)}}@keyframes turnLeft{48%{transform:rotateY(13deg) translateX(3%)}}@keyframes turnRight{48%{transform:rotateY(-13deg) translateX(-3%)}}@keyframes wallBump{35%{transform:translateZ(0) scale(1.025)}60%{filter:brightness(1.4)}}@keyframes creatureShock{0%{opacity:0;transform:translate(-50%,-45%) scale(.35);filter:blur(10px)}75%{transform:translate(-50%,-42%) scale(1.1)}100%{transform:translate(-50%,-43%) scale(1.04)}}@keyframes creatureIdle{50%{transform:translate(-50%,-44%) scale(1.04) rotate(1deg)}}
+    @media(max-width:900px){.intro{grid-template-columns:1fr}.sim-layout{grid-template-columns:1fr}.stage-wrap{border-right:0;border-bottom:1px solid #2b2626}.map-panel{display:grid;grid-template-columns:190px minmax(0,1fr);align-items:start}.mini-map{grid-row:1/4}.side-actions{margin-top:0}.beats{grid-template-columns:1fr}.beat{min-height:auto}.beat span{margin-bottom:20px}.feel-head{align-items:start;flex-direction:column}}
+    @media(max-width:600px){.container{width:min(calc(100% - 24px),1180px)}.hero{padding:36px 0 54px}.topbar-inner{min-height:56px}.prototype-tag{font-size:8px}.intro{gap:14px;margin-bottom:20px}h1{font-size:43px}.intro-copy{font-size:14px}.demo-head{align-items:flex-start;flex-direction:column}.guide-route{width:100%;justify-content:space-between}.maze-stage{height:360px}.stage-hud{inset:9px 9px auto}.hud-chip{font-size:7px}.view-status{left:9px;top:44px;max-width:calc(100% - 18px);padding:5px 7px;font-size:7px}.opening-label,.cell-floor-label,.front-wall span{font-size:6px}.creature-avatar{left:64%;top:54%}.map-panel{grid-template-columns:138px minmax(0,1fr);padding:12px;gap:10px}.mini-map{padding:6px;gap:2px}.map-title{align-items:start;flex-direction:column}.map-legend{gap:5px}.side-btn{min-height:42px;padding:7px;font-size:10px}.camera-status{font-size:8px}.move-controls{grid-template-columns:1fr 1fr}.status-row{grid-template-columns:1fr}.feel{padding-bottom:52px}.feel-head h2{font-size:34px}.tiny-note,.footer-inner{align-items:flex-start;flex-direction:column}.creature-head{width:142px;height:160px}.creature-torso{left:66px;top:150px;width:41px;height:46px}.creature-arm{top:154px;height:98px}.creature-leg{top:192px;height:104px}.creature-label{display:none}}
+    @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}*,*:before,*:after{animation-duration:.001s!important;animation-iteration-count:1!important;transition-duration:.001s!important}}
+  </style>
+</head>
+<body>
+  <a class="skip-link" href="#main">체험으로 바로 이동</a>
+  <header class="topbar">
+    <div class="container topbar-inner">
+      <div class="brand"><span class="brand-grid" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>까꿍<em>KKAKKUNG</em></div>
+      <span class="prototype-tag">FEAR PROTOTYPE</span>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="hero">
+      <div class="container">
+        <div class="intro">
+          <div><div class="eyebrow">ONE CELL · ONE CORNER · ONE FACE</div><h1>한 칸 움직였다.<br><span>코너에서, 까꿍.</span></h1></div>
+          <p class="intro-copy"><strong>전진 두 번, 왼쪽 회전 한 번.</strong><br>미니맵의 내 위치가 한 칸씩 바뀐다. 그리고 복도 끝에, 머리만 커다란 무언가가 서 있다. 얼굴은 네가 아는 얼굴이다.</p>
+        </div>
+
+        <div class="demo-shell" role="region" aria-label="한 칸 이동과 얼굴 조우 체험">
+          <div class="demo-head">
+            <div><small>PLAY THIS MOMENT</small><strong>직접 걸어서 코너를 확인하세요</strong></div>
+            <div class="guide-route" aria-label="추천 입력 순서: 위, 위, 왼쪽. 그다음 위로 접근"><b>↑</b><i aria-hidden="true">→</i><b>↑</b><i aria-hidden="true">→</i><b>←</b><span>그다음 ↑로 접근</span></div>
+          </div>
+
+          <div class="sim-layout">
+            <div class="stage-wrap">
+              <div id="mazeStage" class="maze-stage" data-motion="neutral" data-encounter="hidden" data-depth="4" data-left-open="false" data-right-open="false">
+                <div class="corridor-world" aria-hidden="true"><div id="cellScene" class="cell-scene"></div></div>
+                <div id="creatureAvatar" class="creature-avatar" aria-hidden="true">
+                  <div class="creature-head">
+                    <video id="facePreview" muted playsinline aria-hidden="true" aria-label="내 얼굴이 적용된 캐릭터 미리보기"></video>
+                    <div class="creature-placeholder" aria-hidden="true"><i class="eye left"></i><i class="eye right"></i><i class="mouth"></i></div>
+                  </div>
+                  <div class="creature-torso"></div><div class="creature-arm left"></div><div class="creature-arm right"></div><div class="creature-leg left"></div><div class="creature-leg right"></div>
+                  <div class="creature-label">아는 얼굴</div>
+                </div>
+                <div class="vignette"></div><div class="scanlines"></div><div class="reticle"></div>
+                <div class="stage-hud"><span class="hud-chip live">GRID MOVE</span><span id="encounterHud" class="hud-chip">NO FACE IN SIGHT</span></div>
+                <div id="viewStatus" class="view-status" role="status" aria-live="polite" aria-atomic="true">앞 2칸 통로 · 3칸째 벽</div>
+              </div>
+            </div>
+
+            <aside class="map-panel" aria-label="미니맵과 얼굴 설정">
+              <div class="map-title"><div><small>VISITED MAP</small><strong>지나온 칸만 기억한다</strong></div><span id="mapFacing">EAST →</span></div>
+              <div id="miniMap" class="mini-map" role="img" aria-label="현재 위치를 표시하는 7 곱하기 7 미니맵"></div>
+              <div class="map-legend"><span>방문</span><span>현재 위치</span><span>발견한 얼굴</span></div>
+              <div class="side-actions">
+                <button id="cameraToggle" class="side-btn camera" type="button">내 얼굴 씌우기</button>
+                <button id="resetDemo" class="side-btn reset" type="button">처음 위치로 되돌리기</button>
+              </div>
+              <p id="cameraStatus" class="camera-status" aria-live="polite">카메라는 버튼을 눌러야 켜집니다. 끄면 기본 얼굴이 대신 서 있습니다.</p>
+            </aside>
+          </div>
+
+          <div class="controls">
+            <div class="move-controls" role="group" aria-label="한 칸 이동 조작">
+              <button id="turnLeft" class="move-btn" type="button"><b>←</b> 좌회전</button>
+              <button id="moveForward" class="move-btn" type="button"><b>↑</b> 한 칸 전진</button>
+              <button id="moveBackward" class="move-btn" type="button"><b>↓</b> 한 칸 후진</button>
+              <button id="turnRight" class="move-btn" type="button">우회전 <b>→</b></button>
+            </div>
+            <div class="status-row">
+              <div id="cellStatus" class="status"><strong>CELL 3,5 · EAST</strong> · 출발 위치</div>
+              <div id="moveStatus" class="status" aria-live="polite">방향키 또는 WASD로도 움직일 수 있습니다.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="feel">
+      <div class="container">
+        <div class="feel-head"><h2>이 데모가 보여주려는 건<br>딱 세 장면입니다.</h2><p>정교한 게임 규칙보다 몸으로 한 칸을 옮기고, 지도에서 확인하고, 아는 얼굴 때문에 숨이 멎는 순간을 먼저 봅니다.</p></div>
+        <div class="beats">
+          <article class="beat"><span>01</span><h3>한 번 기울이면 한 칸</h3><p>연속으로 미끄러지지 않습니다. 고개를 한 번 기울이면 딱 한 칸. 도망치고 싶어도 한 칸씩만 갈 수 있습니다.</p></article>
+          <article class="beat"><span>02</span><h3>지도는 지나온 곳만 안다</h3><p>내가 밟은 칸과 바라보는 방향만 기록됩니다. 아직 안 가본 어둠 속에 무엇이 있는지는 지도도 모릅니다.</p></article>
+          <article class="beat"><span>03</span><h3>아는 얼굴, 잘못된 몸</h3><p>익숙한 얼굴을 너무 크게, 팔다리는 너무 길게. 아는 사람인데 사람이 아닌 실루엣이 코너에서 튀어나옵니다.</p></article>
+        </div>
+        <div class="tiny-note"><span><strong>카메라 선택 사항</strong> · 영상은 이 브라우저의 캐릭터 미리보기에만 연결되며 저장하거나 전송하지 않습니다.</span><span><strong>이동 대체 입력</strong> · 버튼·방향키·WASD가 같은 한 칸 규칙을 씁니다. 얼굴 인식 입력도 이 규칙 위에 올라갑니다.</span></div>
+      </div>
+    </section>
+  </main>
+
+  <footer><div class="container footer-inner"><span><strong>까꿍</strong> · 한 칸 뒤의 얼굴</span><span>↑ ↑ ← 로 코너를 확인해 보세요</span></div></footer>
+
+  <script>
+    (()=>{
+      const GRID=[
+        '#######',
+        '#.....#',
+        '#.###.#',
+        '#.....#',
+        '#.#.#.#',
+        '#.....#',
+        '#######'
+      ];
+      const START={x:3,y:5,dir:'E'};
+      const MONSTER={x:5,y:2};
+      const DIRECTIONS={
+        N:{dx:0,dy:-1,left:'W',right:'E',label:'NORTH',arrow:'↑'},
+        E:{dx:1,dy:0,left:'N',right:'S',label:'EAST',arrow:'→'},
+        S:{dx:0,dy:1,left:'E',right:'W',label:'SOUTH',arrow:'↓'},
+        W:{dx:-1,dy:0,left:'S',right:'N',label:'WEST',arrow:'←'}
+      };
+      const VIEW_DEPTH=4;
+      const PERSPECTIVE_FRAMES=[
+        {left:0,right:100,top:0,bottom:100},
+        {left:22,right:78,top:24,bottom:76},
+        {left:34,right:66,top:36,bottom:64},
+        {left:41,right:59,top:43,bottom:57},
+        {left:45,right:55,top:47,bottom:53}
+      ];
+
+      const stage=document.getElementById('mazeStage');
+      const cellScene=document.getElementById('cellScene');
+      const miniMap=document.getElementById('miniMap');
+      const cellStatus=document.getElementById('cellStatus');
+      const moveStatus=document.getElementById('moveStatus');
+      const mapFacing=document.getElementById('mapFacing');
+      const encounterHud=document.getElementById('encounterHud');
+      const viewStatus=document.getElementById('viewStatus');
+      const creatureAvatar=document.getElementById('creatureAvatar');
+      const cameraToggle=document.getElementById('cameraToggle');
+      const cameraStatus=document.getElementById('cameraStatus');
+      const facePreview=document.getElementById('facePreview');
+
+      let state={player:{...START},steps:0};
+      let visited=new Set([keyOf(START.x,START.y)]);
+      let motionTimer=null;
+      let stream=null;
+
+      function keyOf(x,y){return `${x},${y}`;}
+      function isWalkable(x,y){return Boolean(GRID[y]&&GRID[y][x]&&GRID[y][x]!== '#');}
+      function isMonster(x,y){return x===MONSTER.x&&y===MONSTER.y;}
+      function getState(){return{player:{...state.player},steps:state.steps,visited:[...visited]};}
+
+      function encounterDetails(player=state.player,maxDepth=VIEW_DEPTH){
+        const vector=DIRECTIONS[player.dir];
+        const dx=MONSTER.x-player.x;
+        const dy=MONSTER.y-player.y;
+        const distance=Math.abs(dx)+Math.abs(dy);
+        const inFront=(vector.dx!==0&&dy===0&&Math.sign(dx)===vector.dx)||(vector.dy!==0&&dx===0&&Math.sign(dy)===vector.dy);
+        if(!inFront||distance<1||distance>maxDepth)return{state:'hidden',distance:null};
+        for(let step=1;step<distance;step+=1){
+          const x=player.x+vector.dx*step;
+          const y=player.y+vector.dy*step;
+          if(!isWalkable(x,y))return{state:'hidden',distance:null};
+        }
+        return{state:distance>=3?'far':distance===2?'near':'contact',distance};
+      }
+
+      function resolveEncounter(player=state.player,maxDepth=VIEW_DEPTH){return encounterDetails(player,maxDepth).state;}
+
+      function sideIsOpen(side){
+        const direction=DIRECTIONS[DIRECTIONS[state.player.dir][side]];
+        return isWalkable(state.player.x+direction.dx,state.player.y+direction.dy);
+      }
+
+      function clipPolygon(points){return `polygon(${points.map(([x,y])=>`${x}% ${y}%`).join(',')})`;}
+
+      function createSurface(className,points){
+        const surface=document.createElement('div');
+        surface.className=className;
+        surface.style.clipPath=clipPolygon(points);
+        return surface;
+      }
+
+      function renderFirstPerson(){
+        cellScene.textContent='';
+        const forward=DIRECTIONS[state.player.dir];
+        const openingHints=[];
+        let openAhead=0;
+        let wallDepth=null;
+
+        for(let depth=1;depth<=VIEW_DEPTH;depth+=1){
+          const x=state.player.x+forward.dx*depth;
+          const y=state.player.y+forward.dy*depth;
+          const near=PERSPECTIVE_FRAMES[depth-1];
+
+          if(!isWalkable(x,y)){
+            wallDepth=depth;
+            const front=document.createElement('div');
+            front.className='front-wall';
+            front.dataset.depth=String(depth);
+            front.style.left=`${near.left}%`;
+            front.style.right=`${100-near.right}%`;
+            front.style.top=`${near.top}%`;
+            front.style.bottom=`${100-near.bottom}%`;
+            front.innerHTML=`<span>WALL · CELL ${depth}</span>`;
+            cellScene.appendChild(front);
+            break;
+          }
+
+          openAhead=depth;
+          const far=PERSPECTIVE_FRAMES[depth];
+          const slice=document.createElement('div');
+          slice.className='cell-slice';
+          slice.dataset.depth=String(depth);
+
+          slice.appendChild(createSurface('cell-ceiling',[
+            [near.left,near.top],[near.right,near.top],[far.right,far.top],[far.left,far.top]
+          ]));
+          slice.appendChild(createSurface('cell-floor',[
+            [near.left,near.bottom],[near.right,near.bottom],[far.right,far.bottom],[far.left,far.bottom]
+          ]));
+
+          for(const side of ['left','right']){
+            const sideDirection=DIRECTIONS[DIRECTIONS[state.player.dir][side]];
+            const open=isWalkable(x+sideDirection.dx,y+sideDirection.dy);
+            const points=side==='left'
+              ?[[near.left,near.top],[far.left,far.top],[far.left,far.bottom],[near.left,near.bottom]]
+              :[[far.right,far.top],[near.right,near.top],[near.right,near.bottom],[far.right,far.bottom]];
+            const surface=createSurface(`cell-side ${open?'path-opening':'wall-face'}`,points);
+            surface.dataset.side=side;
+            if(open){
+              openingHints.push({side,depth});
+              if(depth<=2){
+                const label=document.createElement('span');
+                label.className='opening-label';
+                label.textContent=side==='left'?'LEFT PATH':'RIGHT PATH';
+                label.style.left=`${side==='left'?(near.left+far.left)/2:(near.right+far.right)/2}%`;
+                label.style.top='50%';
+                surface.appendChild(label);
+              }
+            }
+            slice.appendChild(surface);
+          }
+
+          const frame=document.createElement('div');
+          frame.className='cell-frame';
+          frame.style.left=`${far.left}%`;
+          frame.style.right=`${100-far.right}%`;
+          frame.style.top=`${far.top}%`;
+          frame.style.bottom=`${100-far.bottom}%`;
+          slice.appendChild(frame);
+
+          const boundary=document.createElement('div');
+          boundary.className='cell-boundary';
+          boundary.style.left=`${far.left}%`;
+          boundary.style.right=`${100-far.right}%`;
+          boundary.style.top=`${far.bottom}%`;
+          slice.appendChild(boundary);
+
+          const label=document.createElement('span');
+          label.className='cell-floor-label';
+          label.textContent=`CELL ${depth}`;
+          label.style.top=`${(near.bottom+far.bottom)/2}%`;
+          slice.appendChild(label);
+          cellScene.appendChild(slice);
+        }
+
+        const sightText=wallDepth===1?'바로 앞 벽 · 전진 불가':wallDepth?`앞 ${openAhead}칸 통로 · ${wallDepth}칸째 벽`:`앞 ${openAhead}칸 이상 통로`;
+        const firstOpening=openingHints[0];
+        const openingText=firstOpening?` · ${firstOpening.side==='left'?'왼쪽':'오른쪽'} ${firstOpening.depth}칸째 갈림길`:'';
+        viewStatus.textContent=`${sightText}${openingText}`;
+        return{openAhead,wallDepth};
+      }
+
+      function renderMiniMap(encounter){
+        miniMap.textContent='';
+        for(let y=0;y<GRID.length;y+=1){
+          for(let x=0;x<GRID[y].length;x+=1){
+            const cell=document.createElement('span');
+            const wall=GRID[y][x]==='#';
+            cell.className=`mini-cell ${wall?'wall':'path'}`;
+            cell.setAttribute('aria-hidden','true');
+            if(visited.has(keyOf(x,y)))cell.classList.add('visited');
+            if(x===state.player.x&&y===state.player.y){cell.classList.add('current');cell.dataset.arrow=DIRECTIONS[state.player.dir].arrow;}
+            if(x===MONSTER.x&&y===MONSTER.y&&encounter!=='hidden')cell.classList.add('monster-known');
+            miniMap.appendChild(cell);
+          }
+        }
+        const direction=DIRECTIONS[state.player.dir];
+        miniMap.setAttribute('aria-label',`미니맵. 현재 위치 ${state.player.x},${state.player.y}. ${direction.label} 방향.`);
+        mapFacing.textContent=`${direction.label} ${direction.arrow}`;
+      }
+
+      function render(){
+        const encounterInfo=encounterDetails();
+        const encounter=encounterInfo.state;
+        const direction=DIRECTIONS[state.player.dir];
+        const view=renderFirstPerson();
+        stage.dataset.encounter=encounter;
+        stage.dataset.depth=String(view.openAhead);
+        stage.dataset.leftOpen=String(sideIsOpen('left'));
+        stage.dataset.rightOpen=String(sideIsOpen('right'));
+        creatureAvatar.setAttribute('aria-hidden',encounter==='hidden'?'true':'false');
+        encounterHud.textContent=encounter==='hidden'?'NO FACE IN SIGHT':`FACE · ${encounterInfo.distance} ${encounterInfo.distance===1?'CELL':'CELLS'}`;
+        cellStatus.innerHTML=`<strong>CELL ${state.player.x},${state.player.y} · ${direction.label}</strong> · 이동 ${state.steps}회`;
+        renderMiniMap(encounter);
+      }
+
+      function pulseMotion(kind){
+        clearTimeout(motionTimer);
+        stage.dataset.motion='neutral';
+        void stage.offsetWidth;
+        stage.dataset.motion=kind;
+        motionTimer=setTimeout(()=>{stage.dataset.motion='neutral';},520);
+      }
+
+      function move(kind){
+        const vector=DIRECTIONS[state.player.dir];
+        const sign=kind==='forward'?1:-1;
+        const next={x:state.player.x+vector.dx*sign,y:state.player.y+vector.dy*sign};
+        if(!isWalkable(next.x,next.y)||isMonster(next.x,next.y)){
+          pulseMotion('blocked');
+          moveStatus.textContent=isMonster(next.x,next.y)?'그것이 길을 막고 있습니다. 한 칸 물러나세요.':'벽입니다. 방향을 바꾸세요.';
+          return false;
+        }
+        state.player.x=next.x;state.player.y=next.y;state.steps+=1;
+        visited.add(keyOf(next.x,next.y));
+        pulseMotion(kind==='forward'?'forward':'backward');
+        render();
+        moveStatus.textContent=`${kind==='forward'?'한 칸 전진':'한 칸 후진'} · CELL ${next.x},${next.y}에 도착했습니다.`;
+        return true;
+      }
+
+      function turn(side){
+        state.player.dir=DIRECTIONS[state.player.dir][side];
+        pulseMotion(side==='left'?'turn-left':'turn-right');
+        render();
+        moveStatus.textContent=`${side==='left'?'왼쪽':'오른쪽'}으로 90° 회전했습니다.`;
+        return state.player.dir;
+      }
+
+      function reset(){
+        state={player:{...START},steps:0};visited=new Set([keyOf(START.x,START.y)]);
+        pulseMotion('neutral');render();moveStatus.textContent='출발 위치입니다. ↑ ↑ ← 순서로 움직여 보세요.';
+      }
+
+      function releaseCameraStream(){
+        const active=stream||facePreview.srcObject;
+        stream=null;facePreview.srcObject=null;facePreview.setAttribute('aria-hidden','true');document.body.classList.remove('camera-on');cameraToggle.textContent='내 얼굴 씌우기';
+        if(active&&typeof active.getTracks==='function')active.getTracks().forEach(track=>track.stop());
+      }
+
+      function handleCameraEnded(){
+        if(!stream)return;
+        releaseCameraStream();
+        cameraStatus.textContent='카메라 연결이 끊겨 기본 얼굴로 돌아왔습니다.';
+      }
+
+      async function toggleCamera(){
+        if(stream){releaseCameraStream();cameraStatus.textContent='카메라가 꺼졌습니다. 기본 얼굴이 대신 서 있습니다.';return;}
+        if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){cameraStatus.textContent='카메라 없이 기본 얼굴로 체험할 수 있습니다.';return;}
+        cameraToggle.disabled=true;cameraStatus.textContent='카메라 허용을 기다리는 중입니다…';
+        try{
+          stream=await navigator.mediaDevices.getUserMedia({video:{width:{ideal:480},height:{ideal:480},facingMode:'user'},audio:false});
+          stream.getVideoTracks().forEach(track=>track.addEventListener('ended',handleCameraEnded,{once:true}));
+          facePreview.srcObject=stream;await facePreview.play();
+          if(!stream)throw new Error('Camera stream ended before preview started');
+          facePreview.setAttribute('aria-hidden','false');document.body.classList.add('camera-on');cameraToggle.textContent='내 얼굴 벗기기';cameraStatus.textContent='내 얼굴이 캐릭터에 적용됐습니다. 영상은 저장하거나 전송하지 않습니다.';
+        }catch(error){releaseCameraStream();cameraStatus.textContent='카메라를 열 수 없어 기본 얼굴로 계속합니다.';}
+        finally{cameraToggle.disabled=false;}
+      }
+
+      document.getElementById('moveForward').addEventListener('click',()=>move('forward'));
+      document.getElementById('moveBackward').addEventListener('click',()=>move('backward'));
+      document.getElementById('turnLeft').addEventListener('click',()=>turn('left'));
+      document.getElementById('turnRight').addEventListener('click',()=>turn('right'));
+      document.getElementById('resetDemo').addEventListener('click',reset);
+      cameraToggle.addEventListener('click',toggleCamera);
+      window.addEventListener('keydown',event=>{
+        if(event.altKey||event.ctrlKey||event.metaKey)return;
+        const key=event.key.toLowerCase();
+        const action={arrowup:()=>move('forward'),w:()=>move('forward'),arrowdown:()=>move('backward'),s:()=>move('backward'),arrowleft:()=>turn('left'),a:()=>turn('left'),arrowright:()=>turn('right'),d:()=>turn('right')}[key];
+        if(action){event.preventDefault();action();}
+      });
+      window.addEventListener('beforeunload',releaseCameraStream);
+      window.KkakkungDemo={getState,move,turn,reset,resolveEncounter};
+      render();
+    })();
+  </script>
+</body>
+</html>

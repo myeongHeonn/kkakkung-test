@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>까꿍 — S0 렌더링 품질 검증</title>
+<style>
+  :root{--bone:#cfc6b4;--blood:#b81d24}
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;overflow:hidden;background:#000;color:#ebe4d9;
+    font-family:Pretendard,"Noto Sans KR",system-ui,-apple-system,"Segoe UI",sans-serif}
+  canvas{display:block}
+  #panel{position:fixed;z-index:10;top:12px;left:12px;width:252px;padding:14px;
+    background:rgba(10,8,8,.82);border:1px solid #322c2b;border-radius:12px;
+    backdrop-filter:blur(10px);font-size:11px;line-height:1.5}
+  #panel h2{margin:0 0 2px;font-size:13px;letter-spacing:-.01em}
+  #panel .sub{margin:0 0 12px;color:#8b8382;font-size:10px}
+  .row{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:7px 0}
+  .row label{color:#b0a8a7;flex:1}
+  .row input[type=range]{width:94px;accent-color:var(--bone)}
+  .row output{width:36px;color:var(--bone);text-align:right;font-variant-numeric:tabular-nums}
+  .toggles{margin-top:11px;padding-top:11px;border-top:1px solid #2b2626;
+    display:grid;grid-template-columns:1fr 1fr;gap:5px 8px}
+  .toggles label{display:flex;align-items:center;gap:5px;color:#b0a8a7;cursor:pointer}
+  .toggles input{accent-color:var(--bone);margin:0}
+  #stats{margin-top:11px;padding-top:11px;border-top:1px solid #2b2626;
+    color:#8b8382;font-variant-numeric:tabular-nums}
+  #stats b{color:var(--bone)}
+  #hint{position:fixed;z-index:10;left:50%;bottom:16px;transform:translateX(-50%);
+    padding:8px 14px;background:rgba(10,8,8,.8);border:1px solid #322c2b;border-radius:999px;
+    color:#a39a97;font-size:11px;white-space:nowrap}
+  #hint b{color:var(--bone)}
+  .hidden{display:none!important}
+  #boot{position:fixed;inset:0;z-index:20;display:grid;place-items:center;
+    background:#060404;color:#8b8382;font-size:13px}
+</style>
+<script type="importmap">
+{"imports":{
+  "three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+  "three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+}}
+</script>
+</head>
+<body>
+<div id="boot">로딩 중…</div>
+
+<div id="panel">
+  <h2>S0 · 렌더링 품질 검증</h2>
+  <p class="sub">까꿍 — 조명 · 안개 · 후처리 판정용</p>
+
+  <div class="row"><label>안개 밀도</label>
+    <input id="fog" type="range" min="0" max="0.25" step="0.005" value="0.105"><output id="fogv"></output></div>
+  <div class="row"><label>손전등 세기</label>
+    <input id="lamp" type="range" min="0" max="80" step="1" value="34"><output id="lampv"></output></div>
+  <div class="row"><label>환경광</label>
+    <input id="amb" type="range" min="0" max="0.3" step="0.005" value="0.03"><output id="ambv"></output></div>
+  <div class="row"><label>그레인</label>
+    <input id="grain" type="range" min="0" max="0.3" step="0.005" value="0.085"><output id="grainv"></output></div>
+  <div class="row"><label>비네트</label>
+    <input id="vig" type="range" min="0" max="1" step="0.02" value="0.8"><output id="vigv"></output></div>
+
+  <div class="toggles">
+    <label><input type="checkbox" id="tBloom" checked>블룸</label>
+    <label><input type="checkbox" id="tGrain" checked>그레인</label>
+    <label><input type="checkbox" id="tVig" checked>비네트</label>
+    <label><input type="checkbox" id="tAberr" checked>색수차</label>
+    <label><input type="checkbox" id="tShadow" checked>그림자</label>
+    <label><input type="checkbox" id="tNormal" checked>노멀맵</label>
+    <label><input type="checkbox" id="tFog" checked>안개</label>
+    <label><input type="checkbox" id="tPeek" checked>엿보기</label>
+  </div>
+
+  <div id="stats"><b id="fps">--</b> fps · <span id="cell">--</span></div>
+</div>
+
+<div id="hint"><b>WASD</b> / 방향키 한 칸 이동 · <b>마우스</b> 엿보기 · <b>H</b> UI 숨기기(스크린샷)</div>
+
+<script type="module">
+import * as THREE from 'three';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+
+/* ── 공간 규약 (구현계획.md S0) ───────────────────────── */
+const CELL = 3.0, WALL_H = 3.2, EYE = 1.6;
+const GRID = ['#######','#.....#','#.###.#','#.....#','#.#.#.#','#.....#','#######'];
+const START = { x:3, y:5, dir:1 };            // dir 0=N 1=E 2=S 3=W
+const CREATURE = { x:5, y:2 };
+const DIRS = [{dx:0,dy:-1},{dx:1,dy:0},{dx:0,dy:1},{dx:-1,dy:0}];
+const walkable = (x,y) => GRID[y] && GRID[y][x] && GRID[y][x] !== '#';
+const wx = gx => gx * CELL, wz = gy => gy * CELL;
+
+/* ── 절차적 텍스처 ─────────────────────────────────────
+   외부 에셋 없이 조명·후처리를 먼저 판정하기 위한 것.
+   판정 통과 후 ambientCG / Poly Haven 실사 텍스처로 교체한다. */
+function fractalNoise(size, octaves){
+  const h = new Float32Array(size*size);
+  let amp = 1, tot = 0;
+  for(let o=0;o<octaves;o++){
+    const step = Math.max(1, size >> (o+2));
+    const gw = Math.ceil(size/step)+2;
+    const g = new Float32Array(gw*gw);
+    for(let i=0;i<g.length;i++) g[i] = Math.random();
+    for(let y=0;y<size;y++) for(let x=0;x<size;x++){
+      const fx=x/step, fy=y/step, ix=Math.floor(fx), iy=Math.floor(fy);
+      const tx=fx-ix, ty=fy-iy, sx=tx*tx*(3-2*tx), sy=ty*ty*(3-2*ty);
+      const a=g[iy*gw+ix], b=g[iy*gw+ix+1], c=g[(iy+1)*gw+ix], d=g[(iy+1)*gw+ix+1];
+      const top = a+(b-a)*sx, bot = c+(d-c)*sx;
+      h[y*size+x] += amp * (top + (bot-top)*sy);
+    }
+    tot += amp; amp *= 0.5;
+  }
+  for(let i=0;i<h.length;i++) h[i] /= tot;
+  return h;
+}
+function texFromHeight(h, size, mode, tint){
+  const cv = document.createElement('canvas'); cv.width = cv.height = size;
+  const ctx = cv.getContext('2d'), img = ctx.createImageData(size,size), d = img.data;
+  const at = (x,y) => h[((y+size)%size)*size + ((x+size)%size)];
+  for(let y=0;y<size;y++) for(let x=0;x<size;x++){
+    const i=(y*size+x)*4, v=at(x,y);
+    if(mode==='albedo'){
+      // 얼룩진 콘크리트: 기본색 + 노이즈 + 세로 물자국
+      const streak = 0.86 + 0.14*Math.sin(x*0.09 + v*7);
+      const s = (0.42 + v*0.5) * streak;
+      d[i]=tint[0]*s; d[i+1]=tint[1]*s; d[i+2]=tint[2]*s; d[i+3]=255;
+    } else if(mode==='normal'){
+      // 소벨로 높이장에서 노멀 추출
+      const nx = (at(x-1,y)-at(x+1,y)) * 5.5;
+      const ny = (at(x,y-1)-at(x,y+1)) * 5.5;
+      const len = Math.hypot(nx,ny,1);
+      d[i]=(nx/len*0.5+0.5)*255; d[i+1]=(ny/len*0.5+0.5)*255; d[i+2]=(1/len*0.5+0.5)*255; d[i+3]=255;
+    } else { // roughness — 파인 곳이 더 거칠다
+      const r = (1 - v) * 0.45 + 0.5;
+      d[i]=d[i+1]=d[i+2]=r*255; d[i+3]=255;
+    }
+  }
+  ctx.putImageData(img,0,0);
+  const t = new THREE.CanvasTexture(cv);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  if(mode==='albedo') t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+function surface(size, octaves, tint, repeat){
+  const h = fractalNoise(size, octaves);
+  const map = texFromHeight(h,size,'albedo',tint);
+  const normalMap = texFromHeight(h,size,'normal');
+  const roughnessMap = texFromHeight(h,size,'rough');
+  [map,normalMap,roughnessMap].forEach(t=>{ t.repeat.set(repeat,repeat); t.anisotropy = 8; });
+  return { map, normalMap, roughnessMap };
+}
+
+/* ── 씬 ────────────────────────────────────────────── */
+const renderer = new THREE.WebGLRenderer({ antialias:true, powerPreference:'high-performance' });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.05;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+const FOG_COLOR = 0x050303;
+scene.fog = new THREE.FogExp2(FOG_COLOR, 0.105);
+scene.background = new THREE.Color(FOG_COLOR);
+
+const camera = new THREE.PerspectiveCamera(72, innerWidth/innerHeight, 0.1, 60);
+camera.position.set(wx(START.x), EYE, wz(START.y));
+scene.add(camera);
+
+/* 조명 — 어둠이 기본값, 손전등 하나가 유일한 빛 */
+const ambient = new THREE.AmbientLight(0xa9b4c8, 0.03);
+scene.add(ambient);
+const flashlight = new THREE.SpotLight(0xffd2a0, 34, 17, 0.78, 0.7, 1.5);
+flashlight.castShadow = true;
+flashlight.shadow.mapSize.set(1024,1024);
+flashlight.shadow.camera.near = 0.4;
+flashlight.shadow.camera.far = 18;
+flashlight.shadow.bias = -0.0035;
+camera.add(flashlight);
+camera.add(flashlight.target);
+flashlight.target.position.set(0,0,-1);
+const fill = new THREE.PointLight(0xffc890, 1.1, 5.5, 2.0);
+camera.add(fill);
+
+/* 지오메트리 */
+const wallSurf  = surface(256, 5, [206,198,186], 1);
+const floorSurf = surface(256, 5, [150,142,132], 7);
+const ceilSurf  = surface(256, 4, [120,114,108], 7);
+
+const wallMat  = new THREE.MeshStandardMaterial(Object.assign({}, wallSurf,
+  { roughness:1, metalness:0, normalScale:new THREE.Vector2(1.3,1.3) }));
+const floorMat = new THREE.MeshStandardMaterial(Object.assign({}, floorSurf,
+  { roughness:1, metalness:0, normalScale:new THREE.Vector2(1.1,1.1) }));
+const ceilMat  = new THREE.MeshStandardMaterial(Object.assign({}, ceilSurf,
+  { roughness:1, metalness:0 }));
+
+const SPAN = GRID.length * CELL;
+const plane = new THREE.PlaneGeometry(SPAN, SPAN);
+const floor = new THREE.Mesh(plane, floorMat);
+floor.rotation.x = -Math.PI/2;
+floor.position.set(SPAN/2 - CELL/2, 0, SPAN/2 - CELL/2);
+floor.receiveShadow = true;
+scene.add(floor);
+const ceil = new THREE.Mesh(plane, ceilMat);
+ceil.rotation.x = Math.PI/2;
+ceil.position.set(SPAN/2 - CELL/2, WALL_H, SPAN/2 - CELL/2);
+ceil.receiveShadow = true;
+scene.add(ceil);
+
+// 통로에 면한 벽만 세운다
+const box = new THREE.BoxGeometry(CELL, WALL_H, CELL);
+for(let y=0;y<GRID.length;y++) for(let x=0;x<GRID[y].length;x++){
+  if(GRID[y][x] !== '#') continue;
+  const exposed = DIRS.some(d => walkable(x+d.dx, y+d.dy));
+  if(!exposed) continue;
+  const m = new THREE.Mesh(box, wallMat);
+  m.position.set(wx(x), WALL_H/2, wz(y));
+  m.castShadow = true; m.receiveShadow = true;
+  scene.add(m);
+}
+
+/* 그것 — 대두 + 길고 가는 팔다리 (기획서 §2.4) */
+const dark = new THREE.MeshStandardMaterial({ color:0x0d0b0b, roughness:0.95, metalness:0 });
+const skin = new THREE.MeshStandardMaterial({ color:0x8a7f74, roughness:0.72, metalness:0 });
+const creature = new THREE.Group();
+const head = new THREE.Mesh(new THREE.SphereGeometry(0.56, 28, 20), skin);
+head.scale.set(0.94, 1.14, 0.9); head.position.y = 2.16;
+const torso = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.74, 0.22), dark);
+torso.position.y = 1.18;
+creature.add(head); creature.add(torso);
+const armGeo = new THREE.CylinderGeometry(0.055, 0.042, 1.16, 8);
+[[-0.24, 0.16], [0.24, -0.16]].forEach(function(p){        // 팔
+  const a = new THREE.Mesh(armGeo, dark);
+  a.position.set(p[0], 0.98, 0); a.rotation.z = p[1]; creature.add(a);
+});
+const legGeo = new THREE.CylinderGeometry(0.06, 0.05, 1.5, 8);
+[[-0.12, 0.05], [0.12, -0.05]].forEach(function(p){        // 다리
+  const l = new THREE.Mesh(legGeo, dark);
+  l.position.set(p[0], 0.75, 0); l.rotation.z = p[1]; creature.add(l);
+});
+creature.traverse(function(o){ if(o.isMesh) o.castShadow = true; });
+creature.position.set(wx(CREATURE.x), 0, wz(CREATURE.y));
+scene.add(creature);
+
+/* ── 후처리 ────────────────────────────────────────── */
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.25, 0.6, 0.85);
+composer.addPass(bloom);
+const grade = new ShaderPass({
+  uniforms:{ tDiffuse:{value:null}, uTime:{value:0},
+             uGrain:{value:0.085}, uVig:{value:0.8}, uAberr:{value:0.0022} },
+  vertexShader: [
+    'varying vec2 vUv;',
+    'void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }'
+  ].join('\n'),
+  fragmentShader: [
+    'uniform sampler2D tDiffuse;',
+    'uniform float uTime, uGrain, uVig, uAberr;',
+    'varying vec2 vUv;',
+    'float rand(vec2 c){ return fract(sin(dot(c, vec2(12.9898,78.233))) * 43758.5453); }',
+    'void main(){',
+    '  vec2 d = vUv - 0.5;',
+    '  vec2 off = d * uAberr;',
+    '  vec4 c = vec4(texture2D(tDiffuse, vUv + off).r,',
+    '                texture2D(tDiffuse, vUv).g,',
+    '                texture2D(tDiffuse, vUv - off).b, 1.0);',
+    '  float v = smoothstep(0.92, 0.22, length(d));',
+    '  c.rgb *= mix(1.0, v, uVig);',
+    '  c.rgb += (rand(vUv * vec2(1920.0,1080.0) + uTime) - 0.5) * uGrain;',
+    '  gl_FragColor = c;',
+    '}'
+  ].join('\n')
+});
+composer.addPass(grade);
+composer.addPass(new OutputPass());
+
+/* ── 한 칸 이동 (기획서 §2.1) ──────────────────────── */
+const player = { x:START.x, y:START.y, dir:START.dir };
+let anim = null, bob = 0;
+const ease = t => t < 0.5 ? 4*t*t*t : 1 - Math.pow(-2*t+2, 3)/2;
+let camYaw = -START.dir * Math.PI/2;
+
+function step(sign){
+  if(anim) return;
+  const d = DIRS[player.dir];
+  const nx = player.x + d.dx*sign, ny = player.y + d.dy*sign;
+  if(!walkable(nx,ny) || (nx===CREATURE.x && ny===CREATURE.y)) return;
+  anim = { kind:'move', t:0, fx:wx(player.x), fz:wz(player.y), tx:wx(nx), tz:wz(ny) };
+  player.x = nx; player.y = ny;
+}
+function turn(side){
+  if(anim) return;
+  player.dir = (player.dir + (side==='left' ? 3 : 1)) % 4;
+  anim = { kind:'turn', t:0, from:camYaw, to:camYaw + (side==='left' ? Math.PI/2 : -Math.PI/2) };
+}
+addEventListener('keydown', function(e){
+  const k = e.key.toLowerCase();
+  if(k === 'h'){
+    const nodes = document.querySelectorAll('#panel,#hint');
+    for(const n of nodes) n.classList.toggle('hidden');
+    return;
+  }
+  const map = { arrowup:()=>step(1), w:()=>step(1), arrowdown:()=>step(-1), s:()=>step(-1),
+                arrowleft:()=>turn('left'), a:()=>turn('left'),
+                arrowright:()=>turn('right'), d:()=>turn('right') };
+  if(map[k]){ e.preventDefault(); map[k](); }
+});
+
+/* 엿보기 — 연속 층 미리보기 (기획서 §2.2.1) */
+let peekX = 0, peekY = 0, peekOn = true;
+addEventListener('mousemove', function(e){
+  peekX = (e.clientX/innerWidth  - 0.5) * 2;
+  peekY = (e.clientY/innerHeight - 0.5) * 2;
+});
+
+/* ── UI 배선 ───────────────────────────────────────── */
+const $ = id => document.getElementById(id);
+function bind(id, fn){
+  const el = $(id), out = $(id + 'v');
+  const run = function(){
+    const v = parseFloat(el.value);
+    if(out) out.textContent = String(Math.round(v*1000)/1000);
+    fn(v);
+  };
+  el.addEventListener('input', run); run();
+}
+bind('fog',   v => scene.fog.density = v);
+bind('lamp',  v => flashlight.intensity = v);
+bind('amb',   v => ambient.intensity = v);
+bind('grain', v => grade.uniforms.uGrain.value = $('tGrain').checked ? v : 0);
+bind('vig',   v => grade.uniforms.uVig.value   = $('tVig').checked ? v : 0);
+$('tBloom').onchange  = e => bloom.enabled = e.target.checked;
+$('tGrain').onchange  = e => grade.uniforms.uGrain.value = e.target.checked ? parseFloat($('grain').value) : 0;
+$('tVig').onchange    = e => grade.uniforms.uVig.value   = e.target.checked ? parseFloat($('vig').value) : 0;
+$('tAberr').onchange  = e => grade.uniforms.uAberr.value = e.target.checked ? 0.0022 : 0;
+$('tFog').onchange    = e => scene.fog.density = e.target.checked ? parseFloat($('fog').value) : 0;
+$('tPeek').onchange   = e => peekOn = e.target.checked;
+$('tShadow').onchange = function(e){
+  renderer.shadowMap.enabled = e.target.checked;
+  scene.traverse(function(o){ if(o.isMesh) o.material.needsUpdate = true; });
+};
+$('tNormal').onchange = function(e){
+  const on = e.target.checked;
+  wallMat.normalMap  = on ? wallSurf.normalMap  : null;
+  floorMat.normalMap = on ? floorSurf.normalMap : null;
+  ceilMat.normalMap  = on ? ceilSurf.normalMap  : null;
+  wallMat.needsUpdate = floorMat.needsUpdate = ceilMat.needsUpdate = true;
+};
+
+/* ── 루프 ──────────────────────────────────────────── */
+let last = performance.now(), acc = 0, frames = 0;
+function loop(now){
+  requestAnimationFrame(loop);
+  const dt = Math.min((now - last)/1000, 0.05); last = now;
+
+  if(anim){
+    anim.t = Math.min(1, anim.t + dt/0.4);          // 400ms — 기획서 §2.1
+    const e = ease(anim.t);
+    if(anim.kind === 'move'){
+      camera.position.x = anim.fx + (anim.tx - anim.fx)*e;
+      camera.position.z = anim.fz + (anim.tz - anim.fz)*e;
+      bob += dt*11;
+    } else {
+      camYaw = anim.from + (anim.to - anim.from)*e;
+    }
+    if(anim.t >= 1) anim = null;
+  }
+
+  // 미세 흔들림 — 없으면 화면이 죽어 보인다
+  const idle = now/1000;
+  camera.position.y = EYE + Math.sin(idle*0.9)*0.012 + Math.sin(bob)*0.035;
+  camera.rotation.set(
+    (peekOn ? -peekY*0.20 : 0) + Math.sin(idle*0.7)*0.006,
+    camYaw + (peekOn ? -peekX*0.34 : 0),
+    Math.sin(idle*0.5)*0.004, 'YXZ');
+
+  creature.lookAt(camera.position.x, 0, camera.position.z);
+  grade.uniforms.uTime.value = idle;
+  composer.render();
+
+  frames++; acc += dt;
+  if(acc >= 0.5){ $('fps').textContent = Math.round(frames/acc); frames = 0; acc = 0; }
+  $('cell').textContent = 'CELL ' + player.x + ',' + player.y;
+}
+addEventListener('resize', function(){
+  camera.aspect = innerWidth/innerHeight; camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight); composer.setSize(innerWidth, innerHeight);
+});
+$('boot').remove();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

@@ -1,0 +1,32 @@
+# 의존성 — 지금은 빌드 단계가 없지만 Vite/TS 구조화(구현계획.md S2 말미) 이후를 대비한다
+node_modules/
+dist/
+.vite/
+
+# 로그
+*.log
+npm-debug.log*
+
+# 환경변수 — 멀티플레이(S5) 서버가 붙으면 여기 들어간다
+.env
+.env.*
+!.env.example
+
+# 에디터 · OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# 작업 중 백업 — 파일명에 bak/backup 이 들어간 것은 올리지 않는다
+*.bak
+*.bak.*
+*.orig
+*~
+
+# 얼굴 데이터는 어떤 경우에도 저장소에 들어가지 않는다 (기획서 §7)
+# 지금은 디스크에 쓰는 경로가 없지만, 실수로 캡처를 떨군 경우를 막는다
+captures/
+faces/
+*.webm
