@@ -16,6 +16,22 @@
   #face{top:12px;left:12px}
   #tone{top:12px;right:12px;width:206px}
   #sound{right:12px;bottom:12px;width:206px}
+  #mp{left:12px;bottom:12px;width:236px}
+  #minimap{position:fixed;z-index:10;left:50%;top:12px;transform:translateX(-50%);
+    width:168px;height:168px;border:1px solid var(--line);border-radius:9px;
+    background:rgba(6,4,4,.82);backdrop-filter:blur(6px)}
+  .row input.txt{width:104px;padding:3px 5px;color:#ebe4d9;background:#171313;
+    border:1px solid #3a3332;border-radius:5px;font:inherit;font-size:10px}
+  .mprow{display:flex;justify-content:space-between;gap:6px;margin:3px 0;padding:3px 6px;
+    background:#141010;border-radius:5px;color:#b0a8a7}
+  .mprow.me{color:var(--bone);border:1px solid #3a3332}
+  .mprow span{color:var(--blood);font-weight:800}
+  #banner{position:fixed;z-index:25;left:50%;top:36%;transform:translate(-50%,-50%);
+    text-align:center;pointer-events:none;opacity:0;transition:opacity .25s}
+  #banner.show{opacity:1}
+  #bannerT{font-size:38px;font-weight:900;letter-spacing:.04em;color:var(--bone);
+    text-shadow:0 2px 24px #000,0 0 60px #000}
+  #bannerS{margin-top:6px;color:#a39a97;font-size:12px;text-shadow:0 2px 12px #000}
   .panel h3{margin:0 0 8px;color:var(--muted);font-size:9px;font-weight:900;letter-spacing:.13em}
   #camwrap{position:relative;width:100%;aspect-ratio:4/3;overflow:hidden;border-radius:7px;background:#000}
   #cam,#dots{position:absolute;inset:0;width:100%;height:100%;transform:scaleX(-1)}
@@ -121,8 +137,15 @@
   <label class="chk"><input type="checkbox" id="tPost" checked>후처리(블룸·그레인·비네트)</label>
   <label class="chk"><input type="checkbox" id="tShadow" checked>그림자</label>
   <div class="sep"></div>
+  <div class="row"><label>품질</label>
+    <select id="quality">
+      <option value="auto" selected>자동 (프레임 보고 조절)</option>
+      <option value="high">최고 고정</option>
+      <option value="mid">중간 고정</option>
+      <option value="low">최저 고정</option>
+    </select></div>
   <div class="row"><label>해상도 배율</label>
-    <select id="pxRatio"><option value="1">1.0 (가장 빠름)</option><option value="1.25" selected>1.25</option><option value="1.5">1.5</option><option value="2">2.0 (선명)</option></select></div>
+    <select id="pxRatio"><option value="0.75">0.75 (가장 빠름)</option><option value="1">1.0</option><option value="1.25" selected>1.25</option><option value="1.5">1.5</option><option value="2">2.0 (선명)</option></select></div>
   <div class="row"><label>추론 fps</label>
     <input id="inferHz" type="range" min="8" max="60" step="1" value="20"><output id="inferHzv"></output></div>
   <div class="row"><label>엿보기 반응</label>
@@ -141,6 +164,7 @@
     <span class="pill" id="pInferMs">추론 -- ms</span>
     <span class="pill" id="pThread">스레드 --</span>
     <span class="pill" id="pCell">CELL --</span>
+    <span class="pill" id="pQual">품질 --</span>
   </div>
   <p style="margin:7px 0 0;color:var(--muted);font-size:9px;line-height:1.6">
     <b style="color:var(--bone)">추론 ms</b>가 16을 넘으면 그게 끊김의 원인이다.
@@ -174,6 +198,32 @@
     <b style="color:var(--bone)">스팅어</b>가 터질 땐 나머지가 잠깐 죽는다.</p>
 </div>
 
+<div class="panel" id="mp">
+  <h3>멀티플레이</h3>
+  <div class="row"><label>이름</label><input id="mpName" class="txt" maxlength="12" placeholder="이름"></div>
+  <button class="btn" id="mpJoin">방 들어가기</button>
+  <div id="mpList"></div>
+  <button class="btn ghost" id="mpStart" disabled>시작</button>
+  <button class="btn ghost" id="faceShare">내 얼굴 등록하기</button>
+  <p style="margin:5px 0 0;color:var(--muted);font-size:9px;line-height:1.6">
+    등록하면 <b style="color:var(--bone)">정지 사진 1장</b>만 같은 방 사람들에게 전달돼
+    그것의 얼굴이 된다. 실시간 영상은 보내지 않고, 방을 나가면 즉시 폐기된다.
+    <b style="color:var(--bone)">등록하지 않아도 정상 플레이된다.</b></p>
+  <div class="pills">
+    <span class="pill" id="pNet">오프라인</span>
+    <span class="pill" id="pRole">역할 --</span>
+    <span class="pill" id="pTime">--:--</span>
+    <span class="pill" id="pAlive">생존 --</span>
+  </div>
+  <p style="margin:7px 0 0;color:var(--muted);font-size:9px;line-height:1.6">
+    <b style="color:var(--bone)">도망자</b>는 탈출구를 찾아 나간다 — 심장박동이 빨라질수록 가깝다.
+    <b style="color:var(--bone)">술래</b>는 발소리 방향으로만 쫓는다. 서로의 위치는 <b style="color:var(--bone)">정면 4칸</b> 안에서만 보인다.</p>
+</div>
+
+<canvas id="minimap"></canvas>
+
+<div id="banner"><div id="bannerT"></div><div id="bannerS"></div></div>
+
 <div id="hint"><b>고개 좌우</b> 회전 · <b>상체 앞으로 기울인 채 유지</b> 계속 전진 · 뒤로 빼면 후진 · <b>WASD</b> 병행 · <b>H</b> UI</div>
 
 <script type="module">
@@ -206,7 +256,7 @@ function showErr(title, msg){
 
 /* ══ 공간 규약 (구현계획.md S0) ═════════════════════ */
 const CELL = 3.0, WALL_H = 3.2, EYE = 1.6;
-const GRID = ['#######','#.....#','#.###.#','#.....#','#.#.#.#','#.....#','#######'];
+let GRID = ['#######','#.....#','#.###.#','#.....#','#.#.#.#','#.....#','#######'];
 const START = { x:3, y:5, dir:1 };
 const CREATURE = { x:5, y:2 };
 const DIRS = [{dx:0,dy:-1},{dx:1,dy:0},{dx:0,dy:1},{dx:-1,dy:0}];
@@ -314,13 +364,39 @@ ceil.position.set(SPAN/2-CELL/2, WALL_H, SPAN/2-CELL/2);
 ceil.receiveShadow = true; scene.add(ceil);
 
 const box = new THREE.BoxGeometry(CELL, WALL_H, CELL);
-for(let y=0;y<GRID.length;y++) for(let x=0;x<GRID[y].length;x++){
-  if(GRID[y][x] !== '#') continue;
-  if(!DIRS.some(d => walkable(x+d.dx, y+d.dy))) continue;
-  const m = new THREE.Mesh(box, wallMat);
-  m.position.set(wx(x), WALL_H/2, wz(y));
-  m.castShadow = true; m.receiveShadow = true; scene.add(m);
+let wallMesh = null;
+/* 미로는 판마다 서버가 새로 준다. 다시 세울 수 있어야 한다.
+
+   벽 하나에 메시 하나를 쓰면 19×19 에서 180개가 되고, 손전등 그림자가
+   그 전부를 매 프레임 다시 그린다. InstancedMesh 로 묶으면 드로우콜이 1개다.
+   사방이 벽인 칸은 어차피 안 보이므로 만들지 않는다. */
+function rebuildMaze(){
+  if(wallMesh){ scene.remove(wallMesh); wallMesh.dispose(); wallMesh = null; }
+  const spots = [];
+  for(let y=0;y<GRID.length;y++) for(let x=0;x<GRID[y].length;x++){
+    if(GRID[y][x] !== '#') continue;
+    if(!DIRS.some(d => walkable(x+d.dx, y+d.dy))) continue;
+    spots.push([x, y]);
+  }
+  wallMesh = new THREE.InstancedMesh(box, wallMat, Math.max(1, spots.length));
+  wallMesh.castShadow = true; wallMesh.receiveShadow = true;
+  const t = new THREE.Object3D();
+  spots.forEach(([x, y], i) => {
+    t.position.set(wx(x), WALL_H/2, wz(y));
+    t.updateMatrix();
+    wallMesh.setMatrixAt(i, t.matrix);
+  });
+  wallMesh.count = spots.length;
+  wallMesh.instanceMatrix.needsUpdate = true;
+  wallMesh.frustumCulled = false;          // 인스턴스 전체를 감싸는 경계구가 없어 오판한다
+  scene.add(wallMesh);
+
+  const span = GRID.length*CELL, k = span/SPAN;
+  floor.scale.set(k, k, 1); ceil.scale.set(k, k, 1);
+  floor.position.set(span/2-CELL/2, 0, span/2-CELL/2);
+  ceil.position.set(span/2-CELL/2, WALL_H, span/2-CELL/2);
 }
+rebuildMaze();
 
 /* 그것 — 대두 + 길고 가는 팔다리 (기획서 §2.4) */
 const dark = new THREE.MeshStandardMaterial({ color:0x0d0b0b, roughness:0.95 });
@@ -351,6 +427,8 @@ const faceTexture = new THREE.CanvasTexture(faceCv);
 faceTexture.colorSpace = THREE.SRGBColorSpace;
 const faceMat = new THREE.MeshStandardMaterial({ map:faceTexture, roughness:0.68 });
 const facePlane = new THREE.Mesh(new THREE.PlaneGeometry(0.95,1.15), faceMat);
+facePlane.name = 'face';          // 클론에서 찾아 상대 얼굴로 갈아끼운다
+let facePainted = false;          // 한 번이라도 실제 얼굴이 그려졌는가
 facePlane.position.set(0, 2.16, 0.44);
 facePlane.visible = false;
 creature.add(facePlane);
@@ -439,26 +517,29 @@ const ease = t => t<0.5 ? 4*t*t*t : 1-Math.pow(-2*t+2,3)/2;
 let camYaw = -START.dir*Math.PI/2;
 
 function step(sign){
+  // 멀티에서는 서버가 판정한다. 여기서 움직이면 화면만 거짓말을 하게 된다.
+  if(NET.on){ mpSend(sign > 0 ? 'forward' : 'back'); return false; }
   if(anim) return false;
   const d = DIRS[player.dir];
   const nx = player.x + d.dx*sign, ny = player.y + d.dy*sign;
   if(!walkable(nx,ny) || (nx===CREATURE.x && ny===CREATURE.y)) return false;
   anim = { kind:'move', t:0, fx:wx(player.x), fz:wz(player.y), tx:wx(nx), tz:wz(ny) };
   player.x = nx; player.y = ny;
-  footstep(sign < 0);
+  footstep(sign < 0); mapMark(); mapDraw();
   return true;
 }
 function turn(side){
+  if(NET.on){ mpSend(side); return false; }
   if(anim) return false;
   player.dir = (player.dir + (side==='left'?3:1))%4;
   anim = { kind:'turn', t:0, from:camYaw, to:camYaw + (side==='left'?Math.PI/2:-Math.PI/2) };
-  rustle(side);
+  rustle(side); mapDraw();
   return true;
 }
 addEventListener('keydown', e => {
   const k = e.key.toLowerCase();
   if(k === 'h'){
-    document.querySelectorAll('.panel,#hint').forEach(n => n.classList.toggle('hidden'));
+    document.querySelectorAll('.panel,#hint,#minimap').forEach(n => n.classList.toggle('hidden'));
     return;
   }
   const m = { arrowup:()=>step(1), w:()=>step(1), arrowdown:()=>step(-1), s:()=>step(-1),
@@ -626,6 +707,9 @@ function buildDrone(){
 
 /* 그것과의 거리를 0(멀다)~1(코앞) 로. 심장박동·드론 밝기·숨소리가 여기 물린다. */
 function dread(){
+  // 멀티 도망자에게는 그것과의 거리가 아니라 탈출구까지의 거리가 심장을 뛰게 한다 (§4.3 ③)
+  const nd = netDread();
+  if(nd !== null) return nd;
   const dx = camera.position.x - creature.position.x;
   const dz = camera.position.z - creature.position.z;
   const cells = Math.hypot(dx, dz)/CELL;
@@ -994,6 +1078,7 @@ function sting(){
 }
 // 이동·회전이 끝난 시점에만 검사한다. 시야에 '들어온 순간' 한 번만 터뜨리기 위해서다.
 function sndSight(){
+  if(NET.on) return;                 // 멀티에서는 서버가 보내준 조우로 판정한다
   const now = creatureInSight();
   if(now && !SND.sighted) sting();
   SND.sighted = now;
@@ -1128,16 +1213,90 @@ $('diag').innerHTML = [
   'createImageBitmap <b>' + (typeof createImageBitmap !== 'undefined' ? '있음' : '없음') + '</b>',
 ].join(' · ');
 $('fast').addEventListener('click', () => {
-  $('pxRatio').value = '1';     applyPixelRatio();
-  $('tPost').checked = false;   $('tPost').onchange({ target:$('tPost') });
-  $('tShadow').checked = false; $('tShadow').onchange({ target:$('tShadow') });
-  $('inferHz').value = '15';    $('inferHz').dispatchEvent(new Event('input'));
-  $('fast').textContent = '적용됨 — 개별 토글로 되돌릴 수 있다';
+  // 자동 조절과 싸우지 않도록 '최저 고정' 으로 넘긴다.
+  // 자동인 채로 여기서 값만 낮추면 다음 판정에서 도로 올라가 버린다.
+  $('quality').value = 'low';
+  $('quality').onchange({ target:$('quality') });
+  $('inferHz').value = '12'; $('inferHz').dispatchEvent(new Event('input'));
+  $('fast').textContent = '최저 고정됨 — 품질을 자동으로 되돌릴 수 있다';
 });
 $('tShadow').onchange = e => {
   renderer.shadowMap.enabled = e.target.checked;
   scene.traverse(o => { if(o.isMesh) o.material.needsUpdate = true; });
 };
+/* ══ 자동 품질 조절 ═══════════════════════════════
+   팀원마다 노트북이 다르다. 기본값을 낮추면 좋은 기기가 손해를 보고,
+   높게 두면 약한 기기는 아예 못 논다. 그래서 프레임을 재서 스스로 내려간다.
+
+   핵심은 '무엇이 느린가'를 구분하는 것이다:
+     · 추론 ms 가 크면 메인 스레드가 막힌 것 — 추론 주기를 줄여야 한다
+     · 그 외에 프레임이 길면 GPU 가 밀리는 것 — 해상도·후처리·그림자를 줄여야 한다
+   구분하지 않고 한꺼번에 낮추면 안 잃어도 될 것까지 잃는다.
+
+   내려가는 순서는 '눈에 덜 띄는 것부터'다. 해상도 1.25→1.0 은 거의 티가 안 나고,
+   그림자를 끄는 건 손전등 연출이 통째로 바뀌므로 마지막에 가깝다. */
+const LADDER = [
+  { px:'1.25', post:true,  shadow:true,  map:768, label:'최고' },
+  { px:'1',    post:true,  shadow:true,  map:768, label:'높음' },
+  { px:'1',    post:true,  shadow:true,  map:512, label:'높음−' },
+  { px:'1',    post:false, shadow:true,  map:512, label:'중간' },
+  { px:'1',    post:false, shadow:false, map:512, label:'낮음' },
+  { px:'0.75', post:false, shadow:false, map:512, label:'최저' },
+];
+const AQ = { auto:true, lv:0, last:0, hold:0 };
+
+function applyLadder(i){
+  i = Math.max(0, Math.min(LADDER.length - 1, i));
+  const s = LADDER[i];
+  AQ.lv = i;
+  $('pxRatio').value = s.px; applyPixelRatio();
+  $('tPost').checked = s.post;    $('tPost').onchange({ target:$('tPost') });
+  $('tShadow').checked = s.shadow; $('tShadow').onchange({ target:$('tShadow') });
+  if(flashlight.shadow.mapSize.x !== s.map){
+    flashlight.shadow.mapSize.set(s.map, s.map);
+    // 이미 만들어진 그림자 맵은 크기가 굳어 있다. 버려야 새 크기로 다시 만든다.
+    if(flashlight.shadow.map){ flashlight.shadow.map.dispose(); flashlight.shadow.map = null; }
+  }
+  qualPill();
+}
+function qualPill(){
+  const p = $('pQual');
+  p.textContent = '품질 ' + LADDER[AQ.lv].label + (AQ.auto ? '' : ' (고정)');
+  p.classList.toggle('warn', AQ.lv >= 4);
+}
+
+/* 0.5초마다 한 번씩 불린다. 잦게 손대면 화면이 계속 깜빡이므로 간격을 둔다. */
+function autoQuality(now, frameMs, iMs){
+  if(!AQ.auto) return;
+  if(now - AQ.last < 2500) return;
+
+  if(frameMs > 22){                            // 45fps 아래
+    // 추론이 프레임 예산을 먹고 있으면 그것부터. 화질을 깎아도 이건 안 나아진다.
+    if(!worker && iMs > 14 && P.inferHz > 10){
+      $('inferHz').value = String(Math.max(10, Math.round(P.inferHz) - 4));
+      $('inferHz').dispatchEvent(new Event('input'));
+    } else if(AQ.lv < LADDER.length - 1){
+      applyLadder(AQ.lv + 1);
+    } else return;                             // 더 내릴 게 없다
+    AQ.last = now; AQ.hold = now;
+  } else if(frameMs < 13 && AQ.lv > 0 && now - AQ.hold > 15000){
+    // 충분히 여유로우면 한 칸 되돌린다. 오르내림이 잦으면 그게 더 거슬리므로 오래 기다린다.
+    applyLadder(AQ.lv - 1);
+    AQ.last = now; AQ.hold = now;
+  }
+}
+
+$('quality').onchange = e => {
+  const v = e.target.value;
+  AQ.auto = (v === 'auto');
+  if(v === 'high') applyLadder(0);
+  else if(v === 'mid') applyLadder(3);
+  else if(v === 'low') applyLadder(5);
+  AQ.last = performance.now(); AQ.hold = AQ.last;
+  qualPill();
+};
+qualPill();
+
 $('dump').addEventListener('click', () => {
   console.log('[까꿍 S2 튜닝값]', {
     mincutoff:P.mincut, beta:P.beta,
@@ -1149,6 +1308,7 @@ $('dump').addEventListener('click', () => {
     holdForward:$('holdFwd').checked, suppressOnYaw:$('supYaw').checked,
     fog:P.fog, lamp:P.lamp, ambient:P.amb,
     pixelRatio:$('pxRatio').value, inferHz:P.inferHz, peekTau:P.peekTau,
+    quality:{ auto:AQ.auto, level:AQ.lv, label:LADDER[AQ.lv].label },
     thread:$('thread').value, pumpMode:worker ? pumpMode : 'n/a',
     delegate:$('delegate').value,
     blendshapes:$('useBlend').checked, trackProcessor:trackProcessorOK,
@@ -1356,6 +1516,7 @@ function paintFace(b){
   fctx.restore();
   faceTexture.needsUpdate = true;
   facePlane.visible = true;
+  facePainted = true;
 }
 
 /* ══ 추론 루프 — 30fps ════════════════════════════ */
@@ -1468,6 +1629,329 @@ function onSignals(s, now){
   peekTarget.pitch = -Math.max(-1, Math.min(1, pitch/0.09)) * k * 0.45;
 }
 
+/* ══ 미니맵 — 지나온 칸만 (§1.2 · §4.3 ③) ═══════
+   전체 지도를 주면 §1.2 "코너 너머를 알 수 없어서 무섭다" 가 무너진다.
+   그래서 밟은 칸과 그 칸에 닿아 있는 벽만 그린다. 탈출구도 상대도 찍지 않는다.
+   술래에게도 같은 것만 준다 — 설계 단계(S4)가 아직 없어 술래도 이 미로를 처음 본다. */
+const MAP = { seen:new Set(), dirty:true };
+function mapReset(){ MAP.seen.clear(); MAP.dirty = true; }
+function mapMark(){ MAP.seen.add(player.x + ',' + player.y); MAP.dirty = true; }
+
+function mapDraw(){
+  const cv = $('minimap');
+  if(!cv || cv.classList.contains('hidden')) return;
+  const n = GRID.length, ctx = cv.getContext('2d');
+  const px = cv.clientWidth * devicePixelRatio;
+  if(cv.width !== px){ cv.width = cv.height = px; }
+  const s = cv.width / n;
+
+  ctx.clearRect(0, 0, cv.width, cv.height);
+  ctx.fillStyle = 'rgba(6,4,4,.82)';
+  ctx.fillRect(0, 0, cv.width, cv.height);
+
+  // 밟은 칸 + 그 칸에 닿아 있는 벽만
+  for(const key of MAP.seen){
+    const [x, y] = key.split(',').map(Number);
+    ctx.fillStyle = '#2a2422';
+    ctx.fillRect(x*s, y*s, s, s);
+    for(const d of DIRS){
+      const wx2 = x + d.dx, wy2 = y + d.dy;
+      if(GRID[wy2] && GRID[wy2][wx2] === '#'){
+        ctx.fillStyle = '#574d49';
+        ctx.fillRect(wx2*s, wy2*s, s, s);
+      }
+    }
+  }
+
+  // 나 — 삼각형이 바라보는 쪽을 가리킨다
+  const cx = (player.x + 0.5)*s, cy = (player.y + 0.5)*s, r = s*0.42;
+  const a = player.dir*Math.PI/2;                 // 0=북, 시계방향
+  ctx.fillStyle = '#cfc6b4';
+  ctx.beginPath();
+  for(const [d, k] of [[0, 1], [2.4, 0.62], [-2.4, 0.62]]){
+    const t = a + d;
+    ctx.lineTo(cx + Math.sin(t)*r*k, cy - Math.cos(t)*r*k);
+  }
+  ctx.closePath(); ctx.fill();
+  MAP.dirty = false;
+}
+
+/* ══ 멀티플레이 ══════════════════════════════════
+   서버가 권한을 갖는다. 클라이언트는 "이렇게 하고 싶다"만 보내고,
+   내 위치조차 서버가 내려준 값을 따른다. 벽 통과·순간이동·쿨다운 무시가
+   클라이언트를 고쳐도 불가능해야 하기 때문이다 (server/rules.js).
+
+   접속하지 않으면 아래는 전부 잠들어 있고 기존 솔로 동작이 그대로 산다. */
+const NET = {
+  ws:null, on:false, id:null, view:null, lobby:null,
+  others:new Map(),          // id → THREE.Group
+  seenIds:new Set(),         // 조우 시작 판정용
+  lastHintAt:0,
+};
+
+function mpUrl(){
+  // https 로 열렸으면 wss 여야 한다 — 터널(cloudflared)로 접속할 때가 그렇다
+  return (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws';
+}
+
+function mpConnect(){
+  if(NET.ws && NET.ws.readyState <= 1) return;
+  const name = ($('mpName').value || '').trim() || '이름없음';
+  try{ localStorage.setItem('kk.name', name); }catch{}
+  let ws;
+  try{ ws = NET.ws = new WebSocket(mpUrl()); }
+  catch(e){ return showErr('접속 실패', e.message || e); }
+  mpPill('접속 중…');
+
+  ws.onopen = () => { /* welcome 을 기다린다 */ };
+  ws.onerror = () => mpPill('접속 실패');
+  ws.onclose = () => {
+    NET.on = false; NET.view = null;
+    for(const g of NET.others.values()) scene.remove(g);
+    NET.others.clear();
+    for(const t of FACES.values()) t.dispose();
+    FACES.clear();
+    faceSharePill(false);
+    creature.visible = true;                 // 솔로 연출로 되돌린다
+    mpPill('끊김'); banner('연결이 끊겼다', '서버가 내려갔거나 네트워크가 끊겼다');
+  };
+  ws.onmessage = ev => {
+    let m; try{ m = JSON.parse(ev.data); }catch{ return; }
+    if(m.t === 'welcome'){
+      NET.id = m.id;
+      ws.send(JSON.stringify({ t:'join', name }));
+      NET.on = true; mpPill('접속됨');
+      creature.visible = false;              // 멀티에서는 실제 플레이어만 보인다
+      return;
+    }
+    if(m.t === 'full') return banner('방이 찼다', `최대 ${m.max}명이다`);
+    if(m.t === 'error') return showErr('서버', m.reason);
+    if(m.t === 'state') return mpApply(m);
+    if(m.t === 'face') return faceRecv(m.id, m.data);
+    if(m.t === 'faceGone') return faceDrop(m.id);
+    if(m.t === 'faceOk'){ faceSharePill(true); return banner('얼굴 등록됨', '같은 방 사람들에게만 전달된다'); }
+    if(m.t === 'faceOff'){ faceSharePill(false); return banner('얼굴 등록을 지웠다', ''); }
+  };
+}
+
+function mpPill(text){
+  const p = $('pNet');
+  p.textContent = text;
+  p.classList.toggle('on', text === '접속됨');
+  p.classList.toggle('warn', text === '끊김' || text === '접속 실패');
+}
+
+const mmss = ms => {
+  const s = Math.max(0, Math.round(ms/1000));
+  return String((s/60)|0).padStart(2,'0') + ':' + String(s%60).padStart(2,'0');
+};
+
+function mpApply(msg){
+  const v = msg.view;
+  NET.view = v; NET.lobby = msg.lobby;
+
+  // 미로가 바뀌면 (새 판) 벽을 다시 세운다
+  if(!NET.gridKey || NET.gridKey !== v.grid.join('|')){
+    NET.gridKey = v.grid.join('|');
+    GRID = v.grid;
+    rebuildMaze();
+    mapReset();
+    NET.seenIds.clear();
+  }
+
+  applyMe(v.me);
+  applySeen(v.seen);
+  applyHints(v);
+  mpHud(v, msg.lobby);
+  (msg.events || []).forEach(mpEvent);
+}
+
+/* 서버가 내려준 내 위치를 따른다. 로컬에서 미리 움직이지 않는다 —
+   예측 이동은 서버가 거부했을 때 되감기가 필요한데, 400ms 쿨다운 게임에서
+   그 복잡도를 감수할 이유가 없다.
+
+   상태는 10Hz 로 계속 내려온다. '바뀐 것만' 보고 애니메이션을 걸어야 한다.
+   매번 새로 걸면 카메라가 목적지에 영영 도착하지 못한다. */
+function applyMe(me){
+  const dirChanged = player.dir !== me.dir;
+  const cellChanged = player.x !== me.x || player.y !== me.y;
+  player.x = me.x; player.y = me.y; player.dir = me.dir;
+
+  const wantYaw = -me.dir*Math.PI/2;
+  const px = wx(me.x), pz = wz(me.y);
+
+  if(dirChanged || cellChanged) mapDraw();
+  if(dirChanged){
+    // 최단 방향으로 돈다. 3→0 을 그냥 빼면 반대로 한 바퀴 돈다.
+    const delta = Math.atan2(Math.sin(wantYaw - camYaw), Math.cos(wantYaw - camYaw));
+    anim = { kind:'turn', t:0, from:camYaw, to:camYaw + delta };
+    rustle(delta > 0 ? 'left' : 'right');
+  } else if(cellChanged){
+    anim = { kind:'move', t:0, fx:camera.position.x, fz:camera.position.z, tx:px, tz:pz };
+    footstep(false);
+    mapMark();
+  } else if(!anim){
+    // 아무것도 안 바뀌었고 진행 중인 연출도 없으면 어긋난 값을 조용히 맞춘다
+    camera.position.x = px; camera.position.z = pz;
+    camYaw = wantYaw;
+  }
+}
+
+/* 보이는 상대만 세운다. 서버가 정면 4칸 밖은 아예 안 보내므로
+   여기서 걸러낼 것이 없다 — 없는 정보는 그릴 수도 없다. */
+function applySeen(seen){
+  const live = new Set();
+  for(const s of seen){
+    live.add(s.id);
+    let g = NET.others.get(s.id);
+    if(!g){
+      g = creature.clone(true);
+      // clone 은 재료를 공유한다. 그대로 두면 한 명을 흐리게 할 때 전원이 흐려지고,
+      // 얼굴도 전부 '내 얼굴'이 된다 — 각자 자기 재료를 갖게 떼어낸다.
+      g.traverse(o => { if(o.isMesh) o.material = o.material.clone(); });
+      const fp = g.getObjectByName('face');
+      if(fp){ fp.material.map = null; fp.visible = false; }
+      g.visible = true; scene.add(g); NET.others.set(s.id, g);
+      applyFaceTo(s.id);
+    }
+    g.position.set(wx(s.x), 0, wz(s.y));
+    g.lookAt(camera.position.x, 0, camera.position.z);
+    // §2.3 3단계 — far 는 실루엣만. 형체를 확신할 수 없어야 한다.
+    const far = s.stage === 'far';
+    g.traverse(o => {
+      if(!o.isMesh) return;
+      o.material.transparent = far;
+      o.material.opacity = far ? 0.5 : 1;
+    });
+    if(!NET.seenIds.has(s.id)){ NET.seenIds.add(s.id); sting(); }
+  }
+  for(const [id, g] of NET.others){
+    if(live.has(id)) continue;
+    scene.remove(g);
+    g.traverse(o => { if(o.isMesh) o.material.dispose(); });
+    NET.others.delete(id); NET.seenIds.delete(id);
+  }
+}
+
+/* 술래는 좌표 대신 방향·거리만 받는다 (§4.3 ②). 그걸 발소리로 바꾼다.
+   화면에 점을 찍으면 그건 레이더지 술래잡기가 아니다. */
+function applyHints(v){
+  if(v.me.role !== 'it' || !v.hints || !v.hints.length) return;
+  const now = performance.now();
+  if(now - NET.lastHintAt < 900) return;
+  NET.lastHintAt = now;
+  const h = v.hints.reduce((a, b) => a.d <= b.d ? a : b);
+  const level = Math.max(0.15, 1 - h.d/8);
+  creatureStep(level, { pan: Math.sin(h.bearing), front: Math.cos(h.bearing) });
+}
+
+function mpHud(v, lobby){
+  $('pRole').textContent = v.me.role === 'it' ? '술래' : (v.me.escaped ? '탈출' : v.me.alive ? '도망자' : '잡힘');
+  $('pRole').classList.toggle('warn', v.me.role === 'it');
+  $('pRole').classList.toggle('on', v.me.role === 'runner' && v.me.alive);
+  $('pTime').textContent = v.phase === 'chase' || v.phase === 'infiltrate' ? mmss(v.msLeft) : '--:--';
+  $('pAlive').textContent = `생존 ${v.alive}/${v.total}`;
+  $('mpStart').disabled = !(lobby && lobby.canStart);
+  $('mpStart').textContent = v.phase === 'over' ? '다시 (역할 교대)' : '시작';
+  $('mpList').innerHTML = (lobby ? lobby.players : []).map(p =>
+    `<div class="mprow${p.id === NET.id ? ' me' : ''}">${p.name}` +
+    `<span>${p.escaped ? '탈출' : p.alive ? '' : '잡힘'}</span></div>`).join('');
+}
+
+function mpEvent(e){
+  if(e.t === 'phase' && e.phase === 'infiltrate') banner('잠입', '10초 안에 흩어져라');
+  else if(e.t === 'phase' && e.phase === 'chase') banner('추격 시작', '술래가 풀렸다');
+  else if(e.t === 'caught') banner(`${e.name} 잡혔다`, '');
+  else if(e.t === 'escape') banner(`${e.name} 탈출`, '');
+  else if(e.t === 'over'){
+    const v = NET.view;
+    const win = (e.winner === 'it') === (v.me.role === 'it');
+    banner(win ? '승리' : '패배', e.reason, 4200);
+  }
+}
+
+let bannerTimer = null;
+function banner(title, sub, ms = 2200){
+  $('bannerT').textContent = title;
+  $('bannerS').textContent = sub || '';
+  $('banner').classList.add('show');
+  clearTimeout(bannerTimer);
+  bannerTimer = setTimeout(() => $('banner').classList.remove('show'), ms);
+}
+
+/* 탈출구 방향 신호 (§4.3 ③) — 좌표는 안 준다. 가까울수록 심장이 빨라진다.
+   솔로에서는 그것과의 거리가, 멀티 도망자에게는 탈출구까지의 거리가 이 값을 만든다. */
+function netDread(){
+  const v = NET.view;
+  if(!v || v.me.role !== 'runner' || v.exitDist == null) return null;
+  return Math.max(0, Math.min(1, 1 - v.exitDist/14));
+}
+
+/* ══ 얼굴 스냅샷 (기획서 §4.4 · §7) ═══════════════
+   §7 을 지키는 방식:
+     · 정지 이미지 1장. 실시간 영상은 보내지 않는다
+     · 이 함수는 사용자가 동의 버튼을 눌러야만 호출된다 — 게임 참여 동의에 묶지 않는다
+     · 서버는 같은 방 사람들에게만 중계하고, 나가면 즉시 지운다
+     · 등록하지 않아도 기본(민무늬) 얼굴로 정상 플레이된다
+   등록한 뒤에도 언제든 `등록 지우기` 로 회수할 수 있다. */
+const FACES = new Map();          // id → THREE.Texture
+
+function faceShare(){
+  if(!NET.on) return banner('먼저 방에 들어가야 한다', '');
+  if(!faceOn || !facePainted)
+    return banner('얼굴이 아직 안 잡혔다', '카메라를 켜고 캘리브레이션을 마친 뒤 다시');
+  // 지금 화면에 보이는 그 크롭 한 장을 그대로 보낸다
+  const data = faceCv.toDataURL('image/jpeg', 0.7);
+  mpSend2({ t:'face', data });
+  $('faceShare').textContent = '보내는 중…';
+}
+function faceRevoke(){
+  if(!NET.on) return;
+  mpSend2({ t:'faceOff' });
+}
+function faceSharePill(on){
+  $('faceShare').textContent = on ? '내 얼굴 등록 지우기' : '내 얼굴 등록하기';
+  $('faceShare').classList.toggle('ghost', on);
+  NET.faceShared = on;
+}
+
+// 받은 얼굴을 텍스처로 만들어 이미 서 있는 상대에게도 즉시 반영한다
+function faceRecv(id, dataUrl){
+  const tex = new THREE.TextureLoader().load(dataUrl, () => { tex.needsUpdate = true; });
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const old = FACES.get(id);
+  if(old) old.dispose();
+  FACES.set(id, tex);
+  applyFaceTo(id);
+}
+function faceDrop(id){
+  const t = FACES.get(id);
+  if(t) t.dispose();
+  FACES.delete(id);
+  applyFaceTo(id);
+}
+function applyFaceTo(id){
+  const g = NET.others.get(id);
+  if(!g) return;
+  const fp = g.getObjectByName('face');
+  if(!fp) return;
+  const tex = FACES.get(id);
+  fp.material.map = tex || null;
+  fp.material.needsUpdate = true;
+  fp.visible = !!tex;
+}
+function mpSend2(obj){ if(NET.ws && NET.ws.readyState === 1) NET.ws.send(JSON.stringify(obj)); }
+
+$('faceShare').addEventListener('click', () => NET.faceShared ? faceRevoke() : faceShare());
+$('mpJoin').addEventListener('click', mpConnect);
+$('mpStart').addEventListener('click', () => {
+  if(NET.ws && NET.ws.readyState === 1) NET.ws.send(JSON.stringify({ t:'start' }));
+});
+try{ $('mpName').value = localStorage.getItem('kk.name') || ''; }catch{}
+mapMark(); mapDraw();          // 시작 칸부터 찍고 들어간다
+
+function mpSend(a){ if(NET.ws && NET.ws.readyState === 1) NET.ws.send(JSON.stringify({ t:'input', a })); }
+
 /* ══ 렌더 루프 — 60fps ════════════════════════════ */
 let last = performance.now(), rAcc = 0, rN = 0, renderFps = 0;
 function loop(now){
@@ -1502,7 +1986,7 @@ function loop(now){
     camYaw + peekNow.yaw,
     Math.sin(idle*0.5)*0.004, 'YXZ');
 
-  creature.lookAt(camera.position.x, 0, camera.position.z);
+  if(creature.visible) creature.lookAt(camera.position.x, 0, camera.position.z);
   grade.uniforms.uTime.value = idle;
 
   if(postOn) composer.render(); else renderer.render(scene, camera);
@@ -1521,6 +2005,7 @@ function loop(now){
     $('pFrame').textContent = '프레임 '+frameMs.toFixed(1)+' ms';
     $('pFrame').classList.toggle('warn', frameMs > 20);
     $('pRender').classList.toggle('warn', renderFps < 50);
+    autoQuality(now, frameMs, inferMs);
     $('pCell').textContent = 'CELL '+player.x+','+player.y;
     const dd = dread();
     sndDread(dd);

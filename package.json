@@ -1,0 +1,16 @@
+{
+  "name": "kkakkung",
+  "version": "0.3.0",
+  "private": true,
+  "description": "까꿍 — 고개를 기울여 한 칸씩 걷는 1인칭 3D 미로 공포게임",
+  "scripts": {
+    "start": "node serve.js",
+    "test": "node server/test.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

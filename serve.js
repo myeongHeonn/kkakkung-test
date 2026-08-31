@@ -18,7 +18,7 @@ const TYPES = {
 };
 
 let seq = 0;
-http.createServer((req, res) => {
+const server = http.createServer((req, res) => {
   const url = decodeURIComponent(req.url.split('?')[0]);
   // 브라우저가 실제로 무엇을 몇 번 요청하는지 남긴다 (중복 로드 추적용)
   const tag = String(++seq).padStart(3, '0');
@@ -65,6 +65,24 @@ http.createServer((req, res) => {
     });
     fs.createReadStream(file).pipe(res);
   });
-}).listen(PORT, () => {
+});
+
+/* 멀티플레이 — `ws` 가 설치돼 있을 때만 붙인다.
+   혼자 톤·입력을 볼 때는 npm install 없이도 정적 서버가 그대로 떠야 한다.
+   지금까지의 S0~S2 워크플로(의존성 0)를 깨지 않으려는 것이다. */
+let multi = '꺼짐 — `npm install` 하면 켜진다';
+try{
+  const { WebSocketServer } = require('ws');
+  const { createRoom, attach, MAX_PLAYERS } = require('./server/room');
+  const room = createRoom();
+  const wss = new WebSocketServer({ server, path:'/ws' });
+  wss.on('connection', ws => attach(room, ws));
+  multi = `켜짐 — ws://…/ws (최대 ${MAX_PLAYERS}인)`;
+}catch(e){
+  if(e.code !== 'MODULE_NOT_FOUND') throw e;
+}
+
+server.listen(PORT, () => {
   console.log(`까꿍 dev server → http://localhost:${PORT}/spike-play.html`);
+  console.log(`멀티플레이: ${multi}`);
 });
