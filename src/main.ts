@@ -1,246 +1,14 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>까꿍 — S2 통합 (3D + 얼굴 입력)</title>
-<style>
-  :root{--bone:#cfc6b4;--blood:#b81d24;--line:#322c2b;--muted:#8b8382}
-  *{box-sizing:border-box}
-  html,body{margin:0;height:100%;overflow:hidden;background:#000;color:#ebe4d9;
-    font-family:Pretendard,"Noto Sans KR",system-ui,-apple-system,"Segoe UI",sans-serif;font-size:11px}
-  canvas#gl{display:block}
-  .panel{position:fixed;z-index:10;padding:12px;width:236px;
-    background:rgba(10,8,8,.84);border:1px solid var(--line);border-radius:11px;
-    backdrop-filter:blur(10px);line-height:1.5}
-  #face{top:12px;left:12px}
-  #tone{top:12px;right:12px;width:206px}
-  #sound{right:12px;bottom:12px;width:206px}
-  #mp{left:12px;bottom:12px;width:236px}
-  #minimap{position:fixed;z-index:10;left:50%;top:12px;transform:translateX(-50%);
-    width:168px;height:168px;border:1px solid var(--line);border-radius:9px;
-    background:rgba(6,4,4,.82);backdrop-filter:blur(6px)}
-  .row input.txt{width:104px;padding:3px 5px;color:#ebe4d9;background:#171313;
-    border:1px solid #3a3332;border-radius:5px;font:inherit;font-size:10px}
-  .mprow{display:flex;justify-content:space-between;gap:6px;margin:3px 0;padding:3px 6px;
-    background:#141010;border-radius:5px;color:#b0a8a7}
-  .mprow.me{color:var(--bone);border:1px solid #3a3332}
-  #mpWhere{margin:5px 0 0;color:var(--bone);font-size:10px;font-weight:800;letter-spacing:.06em}
-  .mprow span{color:var(--blood);font-weight:800}
-  #banner{position:fixed;z-index:25;left:50%;top:36%;transform:translate(-50%,-50%);
-    text-align:center;pointer-events:none;opacity:0;transition:opacity .25s}
-  #banner.show{opacity:1}
-  #bannerT{font-size:38px;font-weight:900;letter-spacing:.04em;color:var(--bone);
-    text-shadow:0 2px 24px #000,0 0 60px #000}
-  #bannerS{margin-top:6px;color:#a39a97;font-size:12px;text-shadow:0 2px 12px #000}
-  .panel h3{margin:0 0 8px;color:var(--muted);font-size:9px;font-weight:900;letter-spacing:.13em}
-  #camwrap{position:relative;width:100%;aspect-ratio:4/3;overflow:hidden;border-radius:7px;background:#000}
-  #cam,#dots{position:absolute;inset:0;width:100%;height:100%;transform:scaleX(-1)}
-  #cam{object-fit:cover}
-  .btn{width:100%;min-height:32px;margin-top:7px;padding:6px;color:#060404;background:var(--bone);
-    border:0;border-radius:7px;font:inherit;font-weight:900;cursor:pointer}
-  .btn.ghost{color:#ebe4d9;background:#171313;border:1px solid #3a3332}
-  .btn:disabled{opacity:.4;cursor:default}
-  .row{display:flex;align-items:center;gap:7px;margin:5px 0}
-  .row label{flex:1;color:#b0a8a7}
-  .row input[type=range]{width:88px;accent-color:var(--bone)}
-  .row output{width:40px;color:var(--bone);text-align:right;font-variant-numeric:tabular-nums}
-  .chk{display:flex;align-items:center;gap:6px;color:#b0a8a7;cursor:pointer;margin:4px 0}
-  .chk input{accent-color:var(--bone);margin:0}
-  .row select{width:104px;padding:3px 5px;color:#ebe4d9;background:#171313;
-    border:1px solid #3a3332;border-radius:5px;font:inherit;font-size:10px}
-  .pills{display:flex;flex-wrap:wrap;gap:4px;margin-top:7px}
-  .pill{padding:3px 7px;background:#171313;border:1px solid #3a3332;border-radius:999px;
-    color:var(--muted);font-size:9px;font-weight:800;font-variant-numeric:tabular-nums}
-  .pill.on{color:#060404;background:var(--bone);border-color:var(--bone)}
-  .pill.warn{color:#fff;background:var(--blood);border-color:var(--blood)}
-  .sep{margin:9px 0;border-top:1px solid #2b2626}
-  canvas.graph{width:100%;height:52px;display:block;background:#060404;border-radius:5px;margin-top:5px}
-  #hint{position:fixed;z-index:10;left:50%;bottom:14px;transform:translateX(-50%);
-    padding:8px 14px;background:rgba(10,8,8,.8);border:1px solid var(--line);border-radius:999px;
-    color:#a39a97;white-space:nowrap}
-  #hint b{color:var(--bone)}
-  .hidden{display:none!important}
-  #err{position:fixed;z-index:40;left:50%;top:14px;transform:translateX(-50%);max-width:640px;
-    padding:12px 14px;background:#2a0d0f;border:1px solid var(--blood);border-radius:10px;
-    color:#ffdcdc;font-size:11px;line-height:1.6;display:none}
-  #err.show{display:block}
-  #err b{color:#fff}
-  #err button{margin-left:10px;padding:2px 8px;color:#fff;background:transparent;
-    border:1px solid var(--blood);border-radius:5px;font:inherit;font-size:10px;cursor:pointer}
-  #diag{margin-top:7px;color:var(--muted);font-size:9px;line-height:1.6}
-  #diag b{color:var(--bone)}
-  #boot{position:fixed;inset:0;z-index:30;display:grid;place-items:center;
-    background:#060404;color:var(--muted);font-size:13px}
-</style>
-<script type="importmap">
-{"imports":{
-  "three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
-  "three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/",
-  "colyseus":"https://cdn.jsdelivr.net/npm/colyseus.js@0.15.28/+esm"
-}}
-</script>
-</head>
-<body>
-<div id="boot">로딩 중…</div>
-<div id="err"></div>
-
-<div class="panel" id="face">
-  <h3>얼굴 입력</h3>
-  <div id="camwrap"><video id="cam" muted playsinline></video><canvas id="dots"></canvas></div>
-  <button class="btn" id="start">카메라 시작</button>
-  <button class="btn ghost" id="calib" disabled>중립 자세 캘리브레이션 (2초)</button>
-  <div class="pills">
-    <span class="pill" id="pMode">키보드 모드</span>
-    <span class="pill" id="pYawArm">장전</span>
-    <span class="pill" id="pSizeArm">장전</span>
-  </div>
-  <canvas class="graph" id="gYaw"></canvas>
-  <canvas class="graph" id="gSize"></canvas>
-  <div class="sep"></div>
-  <div class="row"><label>mincutoff</label>
-    <input id="mincut" type="range" min="0.1" max="4" step="0.05" value="1"><output id="mincutv"></output></div>
-  <div class="row"><label>beta</label>
-    <input id="beta" type="range" min="0" max="0.08" step="0.001" value="0.007"><output id="betav"></output></div>
-  <div class="row"><label>회전 발동</label>
-    <input id="yTrig" type="range" min="0.05" max="0.6" step="0.01" value="0.24"><output id="yTrigv"></output></div>
-  <div class="row"><label>회전 재장전</label>
-    <input id="yRel" type="range" min="0.01" max="0.4" step="0.01" value="0.1"><output id="yRelv"></output></div>
-  <div class="row"><label>전후 발동</label>
-    <input id="sTrig" type="range" min="0.02" max="0.4" step="0.01" value="0.12"><output id="sTrigv"></output></div>
-  <div class="row"><label>전후 재장전</label>
-    <input id="sRel" type="range" min="0.01" max="0.2" step="0.005" value="0.05"><output id="sRelv"></output></div>
-  <div class="row"><label>쿨다운 ms</label>
-    <input id="cool" type="range" min="150" max="900" step="10" value="400"><output id="coolv"></output></div>
-  <div class="row"><label>엿보기 세기</label>
-    <input id="peekAmt" type="range" min="0" max="40" step="1" value="19"><output id="peekAmtv"></output></div>
-  <div class="sep"></div>
-  <div class="row"><label>전진 입력</label>
-    <select id="fwdMode"><option value="lean">몸 기울이기</option><option value="jaw">입 벌리기</option></select></div>
-  <div class="row"><label>거리 신호</label>
-    <select id="distSrc"><option value="bbox">bbox 면적</option><option value="matrix">행렬 거리</option></select></div>
-  <label class="chk"><input type="checkbox" id="holdFwd" checked>전진 홀드 반복 (기울인 채 유지)</label>
-  <label class="chk"><input type="checkbox" id="supYaw" checked>회전 중 전후 신호 억제</label>
-  <label class="chk"><input type="checkbox" id="invY">회전 방향 반전</label>
-  <label class="chk"><input type="checkbox" id="invS">전후 방향 반전</label>
-  <label class="chk"><input type="checkbox" id="faceTex" checked>내 얼굴을 그것에 씌우기</label>
-  <button class="btn ghost" id="dump">튜닝값 콘솔 출력</button>
-  <div id="diag"></div>
-</div>
-
-<div class="panel" id="tone">
-  <h3>톤 · 성능</h3>
-  <div class="row"><label>안개 밀도</label>
-    <input id="fog" type="range" min="0" max="0.25" step="0.005" value="0.105"><output id="fogv"></output></div>
-  <div class="row"><label>손전등</label>
-    <input id="lamp" type="range" min="0" max="80" step="1" value="34"><output id="lampv"></output></div>
-  <div class="row"><label>환경광</label>
-    <input id="amb" type="range" min="0" max="0.3" step="0.005" value="0.03"><output id="ambv"></output></div>
-  <label class="chk"><input type="checkbox" id="tPost" checked>후처리(블룸·그레인·비네트)</label>
-  <label class="chk"><input type="checkbox" id="tShadow" checked>그림자</label>
-  <div class="sep"></div>
-  <div class="row"><label>품질</label>
-    <select id="quality">
-      <option value="auto" selected>자동 (프레임 보고 조절)</option>
-      <option value="high">최고 고정</option>
-      <option value="mid">중간 고정</option>
-      <option value="low">최저 고정</option>
-    </select></div>
-  <div class="row"><label>해상도 배율</label>
-    <select id="pxRatio"><option value="0.75">0.75 (가장 빠름)</option><option value="1">1.0</option><option value="1.25" selected>1.25</option><option value="1.5">1.5</option><option value="2">2.0 (선명)</option></select></div>
-  <div class="row"><label>추론 fps</label>
-    <input id="inferHz" type="range" min="8" max="60" step="1" value="20"><output id="inferHzv"></output></div>
-  <div class="row"><label>엿보기 반응</label>
-    <input id="peekTau" type="range" min="0.02" max="0.3" step="0.01" value="0.07"><output id="peekTauv"></output></div>
-  <div class="row"><label>추론 스레드</label>
-    <select id="thread" title="워커 경로는 보류됨 — 구현계획.md S2 참조"><option value="main" selected>메인</option></select></div>
-  <div class="row"><label>델리게이트</label>
-    <select id="delegate"><option value="GPU" selected>GPU</option><option value="CPU">CPU</option></select></div>
-  <label class="chk"><input type="checkbox" id="useBlend">블렌드셰이프 (입 벌리기 전용 · 별도 모델)</label>
-  <button class="btn ghost" id="fast">성능 우선 프리셋</button>
-  <div class="sep"></div>
-  <div class="pills">
-    <span class="pill" id="pRender">렌더 -- fps</span>
-    <span class="pill" id="pFrame">프레임 -- ms</span>
-    <span class="pill" id="pInfer">추론 -- fps</span>
-    <span class="pill" id="pInferMs">추론 -- ms</span>
-    <span class="pill" id="pThread">스레드 --</span>
-    <span class="pill" id="pCell">CELL --</span>
-    <span class="pill" id="pQual">품질 --</span>
-  </div>
-  <p style="margin:7px 0 0;color:var(--muted);font-size:9px;line-height:1.6">
-    <b style="color:var(--bone)">추론 ms</b>가 16을 넘으면 그게 끊김의 원인이다.
-    <b style="color:var(--bone)">워커</b> 모드에서는 이 시간이 메인 스레드 밖에서 소비되므로
-    추론 ms가 16을 넘어도 렌더가 끊기지 않는다. 설정 변경 후에는 카메라를 다시 시작한다.</p>
-</div>
-
-<div class="panel" id="sound">
-  <h3>소리</h3>
-  <button class="btn" id="sndOn">소리 켜기</button>
-  <div class="row"><label>마스터</label>
-    <input id="vMaster" type="range" min="0" max="1" step="0.01" value="0.95"><output id="vMasterv"></output></div>
-  <div class="row"><label>드론</label>
-    <input id="vDrone" type="range" min="0" max="1" step="0.01" value="0.85"><output id="vDronev"></output></div>
-  <div class="row"><label>심장박동</label>
-    <input id="vHeart" type="range" min="0" max="1" step="0.01" value="0.95"><output id="vHeartv"></output></div>
-  <div class="row"><label>속삭임</label>
-    <input id="vWhis" type="range" min="0" max="1" step="0.01" value="0.8"><output id="vWhisv"></output></div>
-  <div class="row"><label>주변음 · 숨</label>
-    <input id="vAmb" type="range" min="0" max="1" step="0.01" value="0.85"><output id="vAmbv"></output></div>
-  <label class="chk"><input type="checkbox" id="sStep" checked>발소리 · 옷깃</label>
-  <label class="chk"><input type="checkbox" id="sSting" checked>스팅어 (그것이 보일 때)</label>
-  <div class="pills">
-    <span class="pill" id="pAudio">소리 꺼짐</span>
-    <span class="pill" id="pDread">근접 --</span>
-  </div>
-  <p style="margin:7px 0 0;color:var(--muted);font-size:9px;line-height:1.6">
-    전부 실시간 합성 — 음원 파일이 없다. 마스터 앞에 리미터가 있어 크게 밀어도 찌그러지지 않는다.
-    <b style="color:var(--bone)">주변음</b>은 그것과 무관하게 아무 때나 나고,
-    <b style="color:var(--bone)">숨·끄는 발소리</b>는 그것이 있는 쪽에서 난다 (등 뒤면 어둡게).
-    <b style="color:var(--bone)">스팅어</b>가 터질 땐 나머지가 잠깐 죽는다.</p>
-</div>
-
-<div class="panel" id="mp">
-  <h3>멀티플레이</h3>
-  <div class="row"><label>이름</label><input id="mpName" class="txt" maxlength="12" placeholder="이름"></div>
-  <button class="btn" id="mpPublic">공개 매칭</button>
-  <button class="btn ghost" id="mpCreate">방 만들기 (코드 생성)</button>
-  <div class="row" id="mpCodeRow"><label>코드</label>
-    <input id="mpCode" class="txt" maxlength="8" placeholder="ABCD" style="text-transform:uppercase">
-    <button class="btn ghost" id="mpEnter" style="width:auto;margin:0;padding:4px 8px">참가</button></div>
-  <div id="mpWhere"></div>
-  <div id="mpList"></div>
-  <button class="btn ghost" id="mpStart" disabled>시작</button>
-  <button class="btn ghost hidden" id="faceShare">내 얼굴 등록하기</button>
-  <button class="btn ghost hidden" id="mpLeave">방 나가기</button>
-  <div class="pills">
-    <span class="pill" id="pNet">오프라인</span>
-    <span class="pill" id="pRole">역할 --</span>
-    <span class="pill" id="pTime">--:--</span>
-    <span class="pill" id="pAlive">생존 --</span>
-  </div>
-  <p style="margin:7px 0 0;color:var(--muted);font-size:9px;line-height:1.6">
-    <b style="color:var(--bone)">공개 매칭</b>은 모르는 사람과 묶이며 <b style="color:var(--bone)">얼굴 공유가 없다.</b>
-    아는 사람끼리 하려면 <b style="color:var(--bone)">방 만들기</b> 로 코드를 뽑아 알려준다 — 그 방에서만 얼굴을 공유한다.
-    등록하면 <b style="color:var(--bone)">정지 사진 1장</b>만 같은 방 사람에게 전달되고 방을 나가면 즉시 폐기된다.
-    등록하지 않아도 정상 플레이된다.</p>
-</div>
-
-<canvas id="minimap"></canvas>
-
-<div id="banner"><div id="bannerT"></div><div id="bannerS"></div></div>
-<div id="hint"><b>고개 좌우</b> 회전 · <b>상체 앞으로 기울인 채 유지</b> 계속 전진 · 뒤로 빼면 후진 · <b>WASD</b> 병행 · <b>H</b> UI</div>
-
-<script type="module">
 import * as THREE from 'three';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import * as Colyseus from 'colyseus';
-import { FaceLandmarker, FilesetResolver } from
-  'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.18/vision_bundle.mjs';
+import * as Colyseus from 'colyseus.js';
+import type {
+  Action, GameEvent, JoinOptions, LobbyInfo, PlayerView, ServerMessages, SeenPlayer,
+} from '../shared/protocol.ts';
+import { FaceLandmarker, FilesetResolver } from '@mediapipe/tasks-vision';
 
 const MODEL = 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
 const VISION = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.18/vision_bundle.mjs';
@@ -250,7 +18,8 @@ const VISION = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.18/vis
    UI 옵션을 제거했다. 배경과 재검토 조건은 구현계획.md S2 에 기록. */
 const WORKER_URL = 'face-worker.js';
 const WASM  = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.18/wasm';
-const $ = id => document.getElementById(id);
+// TODO(모듈 분할): 각 모듈이 HTMLInputElement 등 구체 타입으로 좁힌다
+const $ = (id: string): any => document.getElementById(id);
 // alert 는 실행을 막고 원인 파악을 방해한다. 화면에 남겨서 읽을 수 있게 한다.
 function showErr(title, msg){
   const el = $('err');
@@ -288,7 +57,7 @@ function fractalNoise(size, octaves){
   for(let i=0;i<h.length;i++) h[i] /= tot;
   return h;
 }
-function texFrom(h, size, mode, tint){
+function texFrom(h, size, mode, tint?){
   const cv = document.createElement('canvas'); cv.width = cv.height = size;
   const ctx = cv.getContext('2d'), img = ctx.createImageData(size,size), d = img.data;
   const at = (x,y) => h[((y+size)%size)*size + ((x+size)%size)];
@@ -310,7 +79,7 @@ function texFrom(h, size, mode, tint){
   if(mode==='albedo') t.colorSpace = THREE.SRGBColorSpace;
   return t;
 }
-function surface(size, oct, tint, rep){
+function surface(size, oct, tint, rep?){
   const h = fractalNoise(size, oct);
   const map = texFrom(h,size,'albedo',tint);
   const normalMap = texFrom(h,size,'normal');
@@ -439,7 +208,7 @@ facePlane.position.set(0, 2.16, 0.44);
 facePlane.visible = false;
 creature.add(facePlane);
 
-creature.traverse(o => { if(o.isMesh) o.castShadow = true; });
+creature.traverse(o => { if((o as THREE.Mesh).isMesh) o.castShadow = true; });
 creature.position.set(wx(CREATURE.x), 0, wz(CREATURE.y));
 scene.add(creature);
 
@@ -477,16 +246,20 @@ let postOn = true;
 
 /* ══ One Euro Filter ══════════════════════════════ */
 class LowPass {
+  s: number | null;
   constructor(){ this.s = null; }
-  filter(x,a){ this.s = (this.s===null) ? x : a*x + (1-a)*this.s; return this.s; }
+  filter(x: number, a: number): number { this.s = (this.s===null) ? x : a*x + (1-a)*this.s; return this.s; }
 }
 class OneEuro {
-  constructor(mincutoff=1.0, beta=0.007, dcutoff=1.0){
+  mincutoff: number; beta: number; dcutoff: number;
+  x: LowPass; dx: LowPass;
+  prev: number | null; prevT: number | null;
+  constructor(mincutoff = 1.0, beta = 0.007, dcutoff = 1.0){
     this.mincutoff = mincutoff; this.beta = beta; this.dcutoff = dcutoff;
     this.x = new LowPass(); this.dx = new LowPass(); this.prev = null; this.prevT = null;
   }
-  alpha(cut,dt){ const tau = 1/(2*Math.PI*cut); return 1/(1+tau/dt); }
-  filter(v,t){
+  alpha(cut: number, dt: number): number { const tau = 1/(2*Math.PI*cut); return 1/(1+tau/dt); }
+  filter(v: number, t: number): number {
     const dt = (this.prevT===null) ? 1/30 : Math.max(1e-3, t-this.prevT);
     this.prevT = t;
     const dv = (this.prev===null) ? 0 : (v-this.prev)/dt;
@@ -498,10 +271,12 @@ class OneEuro {
 const fYaw = new OneEuro(), fPitch = new OneEuro(), fSize = new OneEuro();
 
 class Gate {
-  constructor(pill){ this.armed = true; this.until = 0; this.pill = pill; }
+  armed: boolean; until: number; pill: any;
+  constructor(pill: any){ this.armed = true; this.until = 0; this.pill = pill; }
   // hold=true 면 중립 복귀 없이 쿨다운마다 재발동한다.
   // 전진은 hold, 회전은 재장전 — 계속 돌아가면 안 되므로.
-  update(v,trig,rel,cool,now,fire,hold){
+  update(v: number, trig: number, rel: number, cool: number, now: number,
+         fire: (sign: number) => void, hold: boolean){
     if(now < this.until){ this.paint(hold ? '반복' : '쿨다운'); return; }
     if(Math.abs(v) >= trig && (this.armed || hold)){
       this.armed = false; this.until = now + cool; fire(Math.sign(v));
@@ -509,7 +284,7 @@ class Gate {
     if(!this.armed && Math.abs(v) < rel) this.armed = true;
     this.paint(hold ? (Math.abs(v) >= trig ? '반복' : '대기') : (this.armed ? '장전' : '해제'));
   }
-  paint(t){
+  paint(t: string){
     this.pill.textContent = t;
     this.pill.classList.toggle('on', t === '장전' || t === '반복');
   }
@@ -571,7 +346,10 @@ const SND = {
   gDrone:null, gRoom:null, gHeart:null, gWhis:null, gWhisNear:null, gAmb:null,
   gStep:null, gSting:null,
   white:null, brown:null,
-  hbTimer:null, hbNext:0, wsTimer:null, ambTimer:null, brTimer:null,
+  hbTimer:null as ReturnType<typeof setTimeout> | null, hbNext:0,
+  wsTimer:null as ReturnType<typeof setTimeout> | null,
+  ambTimer:null as ReturnType<typeof setTimeout> | null,
+  brTimer:null as ReturnType<typeof setTimeout> | null,
   lastSting:-99, sighted:false,
   vol:{ master:0.95, drone:0.85, heart:0.95, whisper:0.8, amb:0.85 },
   onStep:true, onSting:true,
@@ -605,7 +383,7 @@ function makeIR(sec, decay){
   }
   return buf;
 }
-function noiseSrc(t, dur, brown){
+function noiseSrc(t, dur, brown?){
   const c = SND.ctx, n = c.createBufferSource();
   n.buffer = brown ? SND.brown : SND.white;
   n.loop = true;
@@ -622,7 +400,7 @@ function shaper(amount){
   return ws;
 }
 // 레이어 하나 = 자기 볼륨 노드 + 리버브 센드. bed 에 붙은 층만 스팅어에 눌린다.
-function sndBus(send, direct){
+function sndBus(send, direct?){
   const c = SND.ctx, g = c.createGain();
   g.connect(direct ? SND.master : SND.bed);
   if(send > 0){ const s = c.createGain(); s.gain.value = send; g.connect(s); s.connect(SND.verb); }
@@ -633,7 +411,7 @@ function sndStart(){
   if(SND.ctx){ if(SND.ctx.state === 'suspended') SND.ctx.resume().then(sndPill); sndPill(); return; }
   if(SND.muted) return;
   try{
-    const AC = window.AudioContext || window.webkitAudioContext;
+    const AC = window.AudioContext || (window as any).webkitAudioContext;
     if(!AC) throw new Error('이 브라우저에 Web Audio 가 없다');
     const c = SND.ctx = new AC();
     SND.white = makeNoise(2, false);
@@ -690,9 +468,10 @@ function buildDrone(){
   lp.type = 'lowpass'; lp.frequency.value = 200; lp.Q.value = 0.8;
   lp.connect(SND.gDrone);
   // 51.9Hz 는 36.7Hz 의 증4도(트라이톤)다. 절대 협화되지 않아 귀가 계속 불편하다.
-  [[36.71,'sine',0.95],[51.91,'sine',0.30],[55.00,'sawtooth',0.26],
-   [73.42,'sine',0.44],[98.00,'sine',0.11]]
-    .forEach(([f,type,a], i) => {
+  const voices: [number, OscillatorType, number][] = [
+    [36.71,'sine',0.95],[51.91,'sine',0.30],[55.00,'sawtooth',0.26],
+    [73.42,'sine',0.44],[98.00,'sine',0.11]];
+  voices.forEach(([f,type,a], i) => {
       const o = c.createOscillator(); o.type = type;
       o.frequency.value = f; o.detune.value = (i-2)*9;   // 살짝 어긋나야 맥놀이가 생긴다
       const g = c.createGain(); g.gain.value = a*0.55;
@@ -733,7 +512,7 @@ function creatureDir(){
     front:(-dx*sy - dz*cy)/len,      // 앞쪽 성분 (음수면 등 뒤)
   };
 }
-function spatial(dir){
+function spatial(dir?){
   const c = SND.ctx, d = dir || creatureDir();
   const pan = c.createStereoPanner(); pan.pan.value = Math.max(-1, Math.min(1, d.pan*0.95));
   const lp = c.createBiquadFilter(); lp.type = 'lowpass';
@@ -910,7 +689,7 @@ function scheduleRoom(){
 
 /* 그것의 숨 — 가까워지면 들린다. 등 뒤에 있으면 어둡게, 오른쪽에 있으면 오른쪽에서.
    보이지 않는데 방향이 있는 소리가 화면 안의 무엇보다 무섭다. */
-function breath(level, dir){
+function breath(level?, dir?){
   if(!SND.ctx) return;
   const d = level === undefined ? dread() : level;
   if(d < 0.18) return;
@@ -936,7 +715,7 @@ function breath(level, dir){
   });
 }
 // 그것이 발을 끄는 소리 — 보이지 않을 때만. 보이면 눈이 답을 주므로 소리가 할 일이 없다.
-function creatureStep(level, dir){
+function creatureStep(level?, dir?){
   if(!SND.ctx) return;
   const lv = level === undefined ? dread() : level;
   const c = SND.ctx, out = spatial(dir), t = c.currentTime + 0.05;
@@ -1150,8 +929,8 @@ function makeGraph(cv){
 const graphYaw = makeGraph($('gYaw')), graphSize = makeGraph($('gSize'));
 
 /* ══ UI 배선 ══════════════════════════════════════ */
-const P = {};
-function bind(id, fmt, fn){
+const P: Record<string, number> = {};
+function bind(id, fmt, fn?){
   const el = $(id), out = $(id+'v');
   const run = () => { P[id] = parseFloat(el.value); if(out) out.textContent = fmt(P[id]); if(fn) fn(P[id]); };
   el.addEventListener('input', run); run();
@@ -1164,10 +943,10 @@ bind('sTrig',  v => v.toFixed(2));
 bind('sRel',   v => v.toFixed(3));
 bind('cool',   v => String(v));
 bind('peekAmt',v => String(v));
-bind('fog',    v => String(v), v => scene.fog.density = v);
+bind('fog',    v => String(v), v => (scene.fog as THREE.FogExp2).density = v);
 bind('lamp',   v => String(v), v => flashlight.intensity = v);
 bind('amb',    v => v.toFixed(3), v => ambient.intensity = v);
-$('tPost').onchange = e => { postOn = e.target.checked; bloom.enabled = postOn; grade.enabled = postOn; };
+$('tPost').onchange = e => { postOn = (e.target as HTMLInputElement).checked; bloom.enabled = postOn; grade.enabled = postOn; };
 bind('inferHz', v => String(v));
 bind('peekTau', v => v.toFixed(2));
 bind('vMaster', v => v.toFixed(2), v => { SND.vol.master  = v; applyVol(); });
@@ -1175,8 +954,8 @@ bind('vDrone',  v => v.toFixed(2), v => { SND.vol.drone   = v; applyVol(); });
 bind('vHeart',  v => v.toFixed(2), v => { SND.vol.heart   = v; applyVol(); });
 bind('vWhis',   v => v.toFixed(2), v => { SND.vol.whisper = v; applyVol(); });
 bind('vAmb',    v => v.toFixed(2), v => { SND.vol.amb     = v; applyVol(); });
-$('sStep').onchange  = e => SND.onStep  = e.target.checked;
-$('sSting').onchange = e => SND.onSting = e.target.checked;
+$('sStep').onchange  = e => SND.onStep  = (e.target as HTMLInputElement).checked;
+$('sSting').onchange = e => SND.onSting = (e.target as HTMLInputElement).checked;
 $('sndOn').addEventListener('click', () => {
   if(!SND.ctx){ SND.muted = false; sndStart(); return; }
   SND.muted = !SND.muted; applyVol(); sndPill();
@@ -1214,7 +993,7 @@ $('pxRatio').onchange = applyPixelRatio;
 });
 // 무엇이 지원되는지 화면에 남긴다 — 실패 원인 파악용
 $('diag').innerHTML = [
-  'TrackProcessor <b>' + (typeof MediaStreamTrackProcessor !== 'undefined' ? '있음' : '없음') + '</b>',
+  'TrackProcessor <b>' + (typeof (globalThis as any).MediaStreamTrackProcessor !== 'undefined' ? '있음' : '없음') + '</b>',
   'OffscreenCanvas <b>' + (typeof OffscreenCanvas !== 'undefined' ? '있음' : '없음') + '</b>',
   'createImageBitmap <b>' + (typeof createImageBitmap !== 'undefined' ? '있음' : '없음') + '</b>',
 ].join(' · ');
@@ -1227,8 +1006,8 @@ $('fast').addEventListener('click', () => {
   $('fast').textContent = '최저 고정됨 — 품질을 자동으로 되돌릴 수 있다';
 });
 $('tShadow').onchange = e => {
-  renderer.shadowMap.enabled = e.target.checked;
-  scene.traverse(o => { if(o.isMesh) o.material.needsUpdate = true; });
+  renderer.shadowMap.enabled = (e.target as HTMLInputElement).checked;
+  scene.traverse(o => { if((o as THREE.Mesh).isMesh) ((o as THREE.Mesh).material as THREE.Material).needsUpdate = true; });
 };
 /* ══ 자동 품질 조절 ═══════════════════════════════
    팀원마다 노트북이 다르다. 기본값을 낮추면 좋은 기기가 손해를 보고,
@@ -1293,7 +1072,7 @@ function autoQuality(now, frameMs, iMs){
 }
 
 $('quality').onchange = e => {
-  const v = e.target.value;
+  const v = (e.target as HTMLInputElement).value;
   AQ.auto = (v === 'auto');
   if(v === 'high') applyLadder(0);
   else if(v === 'mid') applyLadder(3);
@@ -1343,9 +1122,11 @@ async function initMainLandmarker(){
   return landmarker;
 }
 let worker = null, workerReady = false, workerFrames = 0;
-let pumpMode = 'track', bitmapInFlight = false, bitmapAcc = 0, readyTimer = 0;
-const trackProcessorOK = (typeof MediaStreamTrackProcessor !== 'undefined');
-function setThreadPill(text, warn){
+let pumpMode = 'track', bitmapInFlight = false, bitmapAcc = 0;
+// setTimeout 의 반환은 브라우저에선 number, Node 타입에선 Timeout 이다. 둘 다 받는다.
+let readyTimer: ReturnType<typeof setTimeout> | undefined;
+const trackProcessorOK = (typeof (globalThis as any).MediaStreamTrackProcessor !== 'undefined');
+function setThreadPill(text, warn?){
   const p = $('pThread');
   p.textContent = '스레드 ' + text;
   p.classList.toggle('warn', !!warn);
@@ -1639,7 +1420,7 @@ function onSignals(s, now){
    전체 지도를 주면 §1.2 "코너 너머를 알 수 없어서 무섭다" 가 무너진다.
    그래서 밟은 칸과 그 칸에 닿아 있는 벽만 그린다. 탈출구도 상대도 찍지 않는다.
    술래에게도 같은 것만 준다 — 설계 단계(S4)가 아직 없어 술래도 이 미로를 처음 본다. */
-const MAP = { seen:new Set(), dirty:true };
+const MAP = { seen: new Set<string>(), dirty: true };
 function mapReset(){ MAP.seen.clear(); MAP.dirty = true; }
 function mapMark(){ MAP.seen.add(player.x + ',' + player.y); MAP.dirty = true; }
 
@@ -1704,8 +1485,11 @@ const FACES = new Map();          // id → THREE.Texture
 const CODE_ABC = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const newCode = () => Array.from({length:4}, () => CODE_ABC[(Math.random()*CODE_ABC.length)|0]).join('');
 
-function mpEndpoint(){
-  // https 로 열렸으면 wss 여야 한다 — 배포 환경이 그렇다
+function mpEndpoint(): string {
+  /* 배포에서는 serve.ts 가 정적 파일과 Colyseus 를 같은 포트에서 내보내므로 같은 오리진이다.
+     개발에서는 Vite(5200)와 게임 서버(5199)가 갈라져 있어 직접 지정한다.
+     https 로 열렸으면 wss 여야 한다 — 섞이면 브라우저가 막는다. */
+  if(import.meta.env.DEV) return 'ws://' + location.hostname + ':5199';
   return (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host;
 }
 
@@ -1768,7 +1552,7 @@ async function mpReconnect(){
 
 function mpLeave(){ if(NET.room) NET.room.leave(true); }
 
-function mpPill(text){
+function mpPill(text: string){
   const p = $('pNet');
   p.textContent = text;
   p.classList.toggle('on', text === '접속됨');
@@ -1839,7 +1623,7 @@ function applySeen(seen){
       g = creature.clone(true);
       // clone 은 재료를 공유한다. 그대로 두면 한 명을 흐리게 할 때 전원이 흐려지고,
       // 얼굴도 전부 '내 얼굴'이 된다 — 각자 자기 재료를 갖게 떼어낸다.
-      g.traverse(o => { if(o.isMesh) o.material = o.material.clone(); });
+      g.traverse(o => { if((o as THREE.Mesh).isMesh) ((o as THREE.Mesh).material as THREE.Material) = ((o as THREE.Mesh).material as THREE.Material).clone(); });
       const fp = g.getObjectByName('face');
       if(fp){ fp.material.map = null; fp.visible = false; }
       g.visible = true; scene.add(g); NET.others.set(s.id, g);
@@ -1850,16 +1634,16 @@ function applySeen(seen){
     // §2.3 3단계 — far 는 실루엣만. 형체를 확신할 수 없어야 한다.
     const far = s.stage === 'far';
     g.traverse(o => {
-      if(!o.isMesh) return;
-      o.material.transparent = far;
-      o.material.opacity = far ? 0.5 : 1;
+      if(!(o as THREE.Mesh).isMesh) return;
+      ((o as THREE.Mesh).material as THREE.Material).transparent = far;
+      ((o as THREE.Mesh).material as THREE.Material).opacity = far ? 0.5 : 1;
     });
     if(!NET.seenIds.has(s.id)){ NET.seenIds.add(s.id); sting(); }
   }
   for(const [id, g] of NET.others){
     if(live.has(id)) continue;
     scene.remove(g);
-    g.traverse(o => { if(o.isMesh) o.material.dispose(); });
+    g.traverse(o => { if((o as THREE.Mesh).isMesh) ((o as THREE.Mesh).material as THREE.Material).dispose(); });
     NET.others.delete(id); NET.seenIds.delete(id);
   }
 }
@@ -1901,8 +1685,8 @@ function mpEvent(e){
   }
 }
 
-let bannerTimer = null;
-function banner(title, sub, ms = 2200){
+let bannerTimer: ReturnType<typeof setTimeout> | null = null;
+function banner(title, sub?, ms = 2200){
   $('bannerT').textContent = title;
   $('bannerS').textContent = sub || '';
   $('banner').classList.add('show');
@@ -2054,6 +1838,3 @@ addEventListener('resize', () => {
 sizeBloomHalf();
 $('boot').remove();
 requestAnimationFrame(loop);
-</script>
-</body>
-</html>

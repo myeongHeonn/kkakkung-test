@@ -3,37 +3,69 @@
    그래야 테스트에서 5분짜리 라운드를 즉시 돌려볼 수 있다.
 
    여기서 절대 하지 않는 것: 소켓 접근, 타이머 등록, 콘솔 출력.
-   전부 room.js 가 한다. */
+   전부 KkakkungRoom 이 한다. 그 덕에 전송 계층을 ws → Colyseus 로 갈아끼울 때
+   이 파일은 한 줄도 안 고쳤다. */
 
-const M = require('./maze');
+import * as M from './maze.ts';
+import {
+  COOLDOWN, SIGHT_CELLS, CAPTURE_CELLS, IT_COUNT,
+  type Action, type Cell, type Dir, type GameEvent, type Grid,
+  type LobbyPlayer, type Player, type PlayerView, type Role, type Winner,
+} from '../shared/protocol.ts';
 
-/* 기획서 §4.3 ① — A안(쿨다운 차등)으로 확정.
-   같은 속도면 거리가 영원히 안 좁혀져서 술래가 잡을 수가 없다. */
-const COOLDOWN = { it: 320, runner: 400 };
+export { COOLDOWN, SIGHT_CELLS, CAPTURE_CELLS, IT_COUNT };
 
-const SIGHT_CELLS = 4;          // §2.3 — 4칸을 넘으면 보이지 않는다
-const CAPTURE_CELLS = 1;        // §2.3 contact = 1칸 → 즉사
-const DEFAULTS = {
+export const DEFAULTS = {
   w: 19, h: 19,                 // 6인까지 들어오므로 넓힌다 (탈출구까지 평균 50칸)
   infiltrateMs: 10_000,         // §4.1 잠입 10초
   chaseMs: 300_000,             // §4.1 추격 5~7분 — 5분에서 시작한다
 };
 
-const dirOf = (from, to) => Math.atan2(to.x - from.x, -(to.y - from.y));   // 북쪽 0, 시계방향
-const stepDist = (a, b) => Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
+export interface Game {
+  seed: number;
+  grid: Grid;
+  w: number;
+  h: number;
+  exit: Cell;
+  runnerSpawn: Cell;
+  itSpawns: Cell[];
+  itSpawn: Cell;
+  /** 탈출구에서의 거리장 — 탈출구 방향 신호용 (§4.3 ③) */
+  exitDistField: number[][];
+  players: Map<string, Player>;
+  phase: PlayerView['phase'];
+  phaseEndsAt: number;
+  infiltrateMs: number;
+  chaseMs: number;
+  winner: Winner | null;
+  endReason: string | null;
+  events: GameEvent[];
+}
 
-function createGame(opt = {}){
+export interface GameOptions {
+  seed?: number;
+  w?: number;
+  h?: number;
+  infiltrateMs?: number;
+  chaseMs?: number;
+}
+
+/** 북쪽 0, 시계방향 */
+const dirOf = (from: Cell, to: Cell): number => Math.atan2(to.x - from.x, -(to.y - from.y));
+export const stepDist = (a: Cell, b: Cell): number => Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
+
+export function createGame(opt: GameOptions = {}): Game {
   const o = { ...DEFAULTS, ...opt };
-  const seed = (o.seed ?? (Math.random()*0xFFFFFFFF)) >>> 0;
+  const seed = (opt.seed ?? (Math.random()*0xFFFFFFFF)) >>> 0;
   const maze = M.generate(o.w, o.h, seed);
   const spawn = M.placeSpawns(maze.grid, seed);
   return {
     seed, grid: maze.grid, w: maze.w, h: maze.h,
     exit: spawn.exit, runnerSpawn: spawn.runnerSpawn,
-    itSpawns: spawn.itSpawns, itSpawn: spawn.itSpawns[0],
-    exitDistField: M.bfs(maze.grid, spawn.exit),      // 탈출구 방향 신호용 (§4.3 ③)
-    players: new Map(),
-    phase: 'lobby',                                   // lobby → infiltrate → chase → over
+    itSpawns: spawn.itSpawns, itSpawn: spawn.itSpawns[0]!,
+    exitDistField: M.bfs(maze.grid, spawn.exit),
+    players: new Map<string, Player>(),
+    phase: 'lobby',
     phaseEndsAt: 0,
     infiltrateMs: o.infiltrateMs, chaseMs: o.chaseMs,
     winner: null, endReason: null,
@@ -41,21 +73,32 @@ function createGame(opt = {}){
   };
 }
 
-function addPlayer(g, id, name){
-  if(g.players.has(id)) return g.players.get(id);
-  const p = {
+export function addPlayer(g: Game, id: string, name?: string): Player {
+  const existing = g.players.get(id);
+  if(existing) return existing;
+  const p: Player = {
     id, name: String(name || '이름없음').slice(0, 16),
     role: 'runner', x: g.runnerSpawn.x, y: g.runnerSpawn.y, dir: 1,
-    alive: true, escaped: false, nextMoveAt: 0, ready: false,
+    alive: true, escaped: false, nextMoveAt: 0, ready: false, connected: true,
   };
   g.players.set(id, p);
   return p;
 }
-const removePlayer = (g, id) => g.players.delete(id);
-const list = g => [...g.players.values()];
-const runners = g => list(g).filter(p => p.role === 'runner');
-const theIts = g => list(g).filter(p => p.role === 'it');
-const theIt = g => theIts(g)[0] || null;   // 예전 호출부 호환
+export const removePlayer = (g: Game, id: string): boolean => g.players.delete(id);
+export const list = (g: Game): Player[] => [...g.players.values()];
+export const runners = (g: Game): Player[] => list(g).filter(p => p.role === 'runner');
+export const theIts = (g: Game): Player[] => list(g).filter(p => p.role === 'it');
+/** 예전 호출부 호환 */
+export const theIt = (g: Game): Player | null => theIts(g)[0] ?? null;
+
+function shuffle<T>(a: T[]): T[] {
+  const out = a.slice();
+  for(let i=out.length-1; i>0; i--){
+    const j = (Math.random()*(i+1))|0;
+    [out[i], out[j]] = [out[j]!, out[i]!];
+  }
+  return out;
+}
 
 /* 역할 배정 — 술래 수는 인원에 따른다.
    3인 이하에서 술래를 2명 두면 도망자가 1명뿐이라 게임이 안 된다.
@@ -64,18 +107,10 @@ const theIt = g => theIts(g)[0] || null;   // 예전 호출부 호환
 
    §4.3 ② 역할 교대를 위해 직전 술래들을 후보에서 뒤로 민다.
    순번제는 아니다 — 무작위이되 연속으로 술래가 되는 것만 피한다. */
-const IT_COUNT = n => (n >= 4 ? 2 : 1);
-
-function shuffle(a){
-  a = a.slice();
-  for(let i=a.length-1; i>0; i--){ const j = (Math.random()*(i+1))|0; [a[i], a[j]] = [a[j], a[i]]; }
-  return a;
-}
-
-function assignRoles(g, previousIts){
+export function assignRoles(g: Game, previousIts?: string[]): void {
   const ps = list(g);
   if(!ps.length) return;
-  const prev = new Set(previousIts || []);
+  const prev = new Set(previousIts ?? []);
   const want = Math.min(IT_COUNT(ps.length), ps.length - 1);   // 도망자가 최소 1명은 남아야 한다
 
   // 직전 술래가 아닌 사람 먼저, 모자라면 그때 직전 술래도 쓴다
@@ -87,12 +122,12 @@ function assignRoles(g, previousIts){
   for(const p of ps){
     p.role = its.has(p.id) ? 'it' : 'runner';
     p.alive = true; p.escaped = false; p.nextMoveAt = 0;
-    const s = p.role === 'it' ? g.itSpawns[(k++) % g.itSpawns.length] : g.runnerSpawn;
+    const s = p.role === 'it' ? g.itSpawns[(k++) % g.itSpawns.length]! : g.runnerSpawn;
     p.x = s.x; p.y = s.y; p.dir = 1;
   }
 }
 
-function start(g, now, previousIts){
+export function start(g: Game, now: number, previousIts?: string[]): { ok: boolean; reason?: string } {
   if(g.players.size < 2) return { ok:false, reason:'2명 이상이어야 시작할 수 있다' };
   assignRoles(g, previousIts);
   g.phase = 'infiltrate';
@@ -104,9 +139,10 @@ function start(g, now, previousIts){
 
 /* 입력 — 전부 서버가 검증한다. 클라이언트는 "이렇게 하고 싶다"만 보낸다.
    벽 통과·쿨다운 무시·순간이동이 전부 여기서 막힌다. */
-function input(g, id, action, now){
+export function input(g: Game, id: string, action: Action | string, now: number): { ok: boolean; reason?: string } {
   const p = g.players.get(id);
   if(!p) return { ok:false, reason:'없는 플레이어' };
+
   // 로비에서는 자유롭게 걸어다닌다 — 조작을 확인하고 몸을 푸는 시간이다.
   // 시작하면 assignRoles 가 전원을 시작 지점으로 되돌리므로 밸런스에는 영향이 없고,
   // resolve() 도 로비에서는 아무 판정을 하지 않는다.
@@ -117,10 +153,10 @@ function input(g, id, action, now){
   if(now < p.nextMoveAt) return { ok:false, reason:'쿨다운' };
 
   if(action === 'left' || action === 'right'){
-    p.dir = (p.dir + (action === 'left' ? 3 : 1)) % 4;
+    p.dir = ((p.dir + (action === 'left' ? 3 : 1)) % 4) as Dir;
   } else if(action === 'forward' || action === 'back'){
     const s = action === 'forward' ? 1 : -1;
-    const d = M.DIRS[p.dir];
+    const d = M.DIRS[p.dir]!;
     const nx = p.x + d.dx*s, ny = p.y + d.dy*s;
     if(!M.walkable(g.grid, nx, ny)) return { ok:false, reason:'벽' };
     p.x = nx; p.y = ny;
@@ -134,7 +170,7 @@ function input(g, id, action, now){
 
 /* 판정 — 이동이 일어난 뒤에만 부른다.
    포획과 탈출을 같은 곳에서 처리해야 "탈출하는 순간 잡혔다" 같은 순서 문제가 안 생긴다. */
-function resolve(g){
+function resolve(g: Game): void {
   if(g.phase !== 'chase' && g.phase !== 'infiltrate') return;
   const its = theIts(g);
 
@@ -144,7 +180,7 @@ function resolve(g){
     if(r.x === g.exit.x && r.y === g.exit.y){
       r.escaped = true;
       g.events.push({ t:'escape', id:r.id, name:r.name });
-      return end(g, 'runners', `${r.name} 탈출`);       // §4.1 1명이라도 탈출하면 도망자 진영 승
+      return end(g, 'runners', `${r.name} 탈출`);   // §4.1 1명이라도 탈출하면 도망자 진영 승
     }
     if(g.phase === 'chase' && its.some(it => it.alive && stepDist(it, r) <= CAPTURE_CELLS)){
       r.alive = false;
@@ -155,13 +191,13 @@ function resolve(g){
     return end(g, 'it', '도망자 전원 포획');
 }
 
-function end(g, winner, reason){
+function end(g: Game, winner: Winner, reason: string): void {
   g.phase = 'over'; g.winner = winner; g.endReason = reason;
   g.events.push({ t:'over', winner, reason });
 }
 
-/* 시간 진행 — 소켓 서버가 주기적으로 부른다. */
-function tick(g, now){
+/** 시간 진행 — 방이 주기적으로 부른다. */
+export function tick(g: Game, now: number): GameEvent[] {
   if(g.phase === 'infiltrate' && now >= g.phaseEndsAt){
     g.phase = 'chase';
     g.phaseEndsAt = now + g.chaseMs;
@@ -175,18 +211,23 @@ function tick(g, now){
   }
   return drain(g);
 }
-function drain(g){ const e = g.events; g.events = []; return e; }
+export function drain(g: Game): GameEvent[] { const e = g.events; g.events = []; return e; }
+
+export const lobbyPlayer = (p: Player): LobbyPlayer => ({
+  id: p.id, name: p.name, role: p.role, alive: p.alive,
+  escaped: p.escaped, connected: p.connected !== false,
+});
 
 /* 이 플레이어가 알아도 되는 것만 추린다.
-   보내지 않는 것은 클라이언트를 뜯어봐도 알 수 없다 — 그게 권위 서버의 요점이다. */
-function viewFor(g, id, now){
+   보내지 않는 것은 클라이언트를 뜯어봐도 알 수 없다 — 그게 권위 서버의 요점이다.
+   PlayerView 타입이 이 규칙을 문법으로 강제한다 (shared/protocol.ts). */
+export function viewFor(g: Game, id: string, now: number): PlayerView | null {
   const me = g.players.get(id);
   if(!me) return null;
-  const view = {
+  const view: PlayerView = {
     phase: g.phase,
     msLeft: Math.max(0, g.phaseEndsAt - now),
     winner: g.winner, endReason: g.endReason,
-    grid: g.grid, w: g.w, h: g.h, seed: g.seed,
     me: { id:me.id, name:me.name, role:me.role, x:me.x, y:me.y, dir:me.dir,
           alive:me.alive, escaped:me.escaped },
     alive: runners(g).filter(r => r.alive && !r.escaped).length,
@@ -210,7 +251,7 @@ function viewFor(g, id, now){
 
   if(me.role === 'runner'){
     // §4.3 ③ 탈출구 방향 신호 — 좌표는 주지 않는다. 거리감만.
-    const d = g.exitDistField[me.y] ? g.exitDistField[me.y][me.x] : -1;
+    const d = g.exitDistField[me.y]?.[me.x] ?? -1;
     view.exitDist = d < 0 ? null : d;
   } else {
     // §4.3 ② 술래는 도망자 위치를 못 받는다. 발소리 방향과 거리만 듣는다.
@@ -223,8 +264,4 @@ function viewFor(g, id, now){
   return view;
 }
 
-module.exports = {
-  COOLDOWN, SIGHT_CELLS, CAPTURE_CELLS, DEFAULTS, IT_COUNT,
-  createGame, addPlayer, removePlayer, assignRoles, start, input, tick, drain, viewFor,
-  list, runners, theIt, theIts, stepDist,
-};
+export type { Role, Player };

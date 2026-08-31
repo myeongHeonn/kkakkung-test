@@ -1,18 +1,30 @@
 {
   "name": "kkakkung",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "private": true,
   "description": "까꿍 — 고개를 기울여 한 칸씩 걷는 1인칭 3D 미로 공포게임",
   "scripts": {
-    "start": "node serve.js",
-    "test": "node server/test.js",
-    "test:net": "node server/nettest.js"
+    "dev": "vite",
+    "build": "vite build",
+    "start": "node serve.ts",
+    "test": "node server/test.ts",
+    "test:net": "node server/nettest.ts",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.client.json"
   },
   "dependencies": {
+    "@mediapipe/tasks-vision": "^0.10.18",
     "colyseus": "^0.15.57",
-    "colyseus.js": "^0.15.28"
+    "colyseus.js": "^0.15.28",
+    "three": "^0.170.0"
   },
   "engines": {
     "node": ">=18"
-  }
+  },
+  "devDependencies": {
+    "@types/node": "^26.4.0",
+    "@types/three": "^0.185.4",
+    "typescript": "^7.0.2",
+    "vite": "^8.2.2"
+  },
+  "type": "module"
 }

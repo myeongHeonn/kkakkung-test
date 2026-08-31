@@ -16,10 +16,16 @@
 ## 실행
 
 ```bash
-node serve.js          # 혼자 볼 때는 이것만으로 충분하다
+npm install
+npm run dev            # 클라이언트 (Vite) → http://localhost:5200/
+npm start              # 게임 서버 (Colyseus) → 5199
 ```
 
-→ **http://localhost:5199/spike-play.html**
+창 두 개가 필요하다. 배포용 한 덩어리로 돌리려면:
+
+```bash
+npm run build && npm start   # → http://localhost:5199/
+```
 
 팀원과 같이 하려면 아래 [멀티플레이](#멀티플레이--팀원과-술래잡기) 절을 본다 (npm install 이 한 번 필요하다).
 
@@ -46,10 +52,12 @@ node serve.js          # 혼자 볼 때는 이것만으로 충분하다
 
 ```
 kkakkung/
-├─ spike-play.html    현재 작업 대상 — 3D + 얼굴 입력 + 소리 통합본 (단일 파일)
-├─ face-worker.js     워커 추론 경로 (보류 중, 로드되지 않음)
-├─ serve.js           정적 서버 + WebSocket (ws 가 있으면 멀티 자동 활성)
-├─ server/            미로 생성 · 게임 규칙 · 방 · 테스트
+├─ index.html         클라이언트 진입점
+├─ src/main.ts        클라이언트 전부 (아직 한 파일 — 모듈 분할 예정)
+├─ shared/protocol.ts 서버·클라가 같이 보는 프로토콜 타입
+├─ serve.ts           정적(dist) + Colyseus
+├─ server/            미로 생성 · 게임 규칙 · 방 · 테스트 (TypeScript)
+├─ face-worker.js     워커 추론 경로 (보류 중)
 ├─ docs/              기획서 · 구현계획 · 다음작업
 └─ spikes/            단계별 검증용 스파이크
 ```
@@ -118,8 +126,9 @@ cloudflared tunnel --url http://localhost:5199
 ### 검증
 
 ```bash
-node server/test.js      # 규칙 단위 — 미로·BFS·포획·승패·정보 비대칭 (360건)
-node server/nettest.js   # Colyseus 클라 4개로 한 판 — 방 코드·얼굴 정책·재접속 (42건)
+npm test          # 규칙 단위 — 미로·BFS·포획·승패·정보 비대칭 (360건)
+npm run test:net  # Colyseus 클라 4개로 한 판 — 방 코드·얼굴 정책·재접속 (42건)
+npm run typecheck # 서버·클라 타입 검사
 ```
 
 ---
@@ -128,6 +137,8 @@ node server/nettest.js   # Colyseus 클라 4개로 한 판 — 방 코드·얼�
 
 빌드 없이 CDN에서 직접 불러온다.
 
+- **TypeScript** — 서버는 Node 24 가 `.ts` 를 그대로 실행한다(빌드 없음). 클라이언트는 Vite 가 번들한다
+- **[Vite](https://vite.dev/) 8** — 클라이언트 번들 (761KB → gzip 203KB). 개발 서버는 **5200**
 - **[Colyseus](https://colyseus.io/) 0.15** — 방·매치메이킹·재접속. 상태 동기화(Schema)는 쓰지 않는다 — 사람마다 볼 수 있는 게 다르기 때문에 `viewFor()` 로 1인분씩 만들어 보낸다
 - **[Three.js](https://threejs.org/)** — 렌더링. 후처리는 블룸 + 그레인/비네트/색수차 셰이더 패스
 - **[MediaPipe Face Landmarker](https://ai.google.dev/edge/mediapipe/solutions/vision/face_landmarker)** — 얼굴 랜드마크. 메인 스레드에서 20fps로 추론

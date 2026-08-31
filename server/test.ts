@@ -1,14 +1,20 @@
-/* 헤드리스 규칙 검증 —  node server/test.js
+/* 헤드리스 규칙 검증 —  node server/test.ts
    브라우저 없이 돌아가는 부분은 전부 여기서 잡는다.
    특히 마지막 「추격 성립」은 기획서 §4.3 ① 의 미해결 문제에 실측으로 답하는 자리다. */
 
-const M = require('./maze');
-const R = require('./rules');
+import * as M from './maze.ts';
+import * as R from './rules.ts';
+import type { Game } from './rules.ts';
+import type { Cell } from '../shared/protocol.ts';
 
+const must = <T,>(v: T | undefined | null, what: string): T => {
+  if(v == null) throw new Error(what + ' 이(가) 없다');
+  return v;
+};
 let pass = 0, fail = 0;
-const ok = (cond, label) => { cond ? (pass++, 0) : (fail++, console.log('  ✗ ' + label)); };
-const eq = (a, b, label) => ok(a === b, `${label} — 기대 ${b}, 실제 ${a}`);
-function group(name, fn){ console.log('\n' + name); fn(); }
+const ok = (cond: unknown, label: string) => { cond ? (pass++, 0) : (fail++, console.log('  ✗ ' + label)); };
+const eq = (a: unknown, b: unknown, label: string) => ok(a === b, `${label} — 기대 ${b}, 실제 ${a}`);
+function group(name: string, fn: () => void){ console.log('\n' + name); fn(); }
 
 /* ── 미로 ───────────────────────────────────────── */
 group('미로 생성', () => {
@@ -21,8 +27,8 @@ group('미로 생성', () => {
 
     // 모든 통로가 서로 이어져 있어야 한다 — 고립된 방이 생기면 게임이 끝난다
     const cs = M.cells(m.grid);
-    const d = M.bfs(m.grid, cs[0]);
-    ok(cs.every(c => d[c.y][c.x] >= 0), `seed ${seed}: 전 통로 연결`);
+    const d = M.bfs(m.grid, must(cs[0], '첫 칸'));
+    ok(cs.every(c => d[c.y]![c.x]! >= 0), `seed ${seed}: 전 통로 연결`);
   }
   // 같은 시드 = 같은 미로 (방 전원이 같은 걸 봐야 한다)
   ok(JSON.stringify(M.generate(13,13,42).grid) === JSON.stringify(M.generate(13,13,42).grid),
@@ -57,7 +63,7 @@ group('배치', () => {
     ok(M.reachable(m.grid, s.runnerSpawn, s.exit), '도망자 → 탈출구 경로 존재 (§4.2 절대 규칙)');
     const dR = M.bfs(m.grid, s.runnerSpawn);
     // 술래를 탈출구나 도망자 코앞에 두면 게임이 성립하지 않는다
-    ok(dR[s.itSpawn.y][s.itSpawn.x] >= 3, `술래가 도망자에게서 3칸 이상 (seed ${seed})`);
+    ok(dR[s.itSpawn.y]![s.itSpawn.x]! >= 3, `술래가 도망자에게서 3칸 이상 (seed ${seed})`);
   }
 });
 
@@ -70,13 +76,13 @@ group('직선 시야', () => {
 });
 
 /* ── 규칙 ───────────────────────────────────────── */
-function newGame(seed = 5){
+function newGame(seed = 5): Game {
   const g = R.createGame({ seed, w:13, h:13 });
   R.addPlayer(g, 'A', '술래'); R.addPlayer(g, 'B', '도망자1'); R.addPlayer(g, 'C', '도망자2');
   return g;
 }
 // 역할을 테스트가 정하도록 강제한다 (assignRoles 는 무작위라 단정할 수 없다)
-function force(g, itId){
+function force(g: Game, itId: string){
   for(const p of R.list(g)){
     p.role = p.id === itId ? 'it' : 'runner';
     p.alive = true; p.escaped = false; p.nextMoveAt = 0;
@@ -96,12 +102,12 @@ group('기본 설정', () => {
 group('로비 워밍업 이동', () => {
   const g = newGame();
   eq(g.phase, 'lobby', '처음엔 로비');
-  const b = g.players.get('B'), before = b.dir;
+  const b = must(g.players.get('B'), 'B'), before = b.dir;
   ok(R.input(g, 'B', 'left', 0).ok, '로비에서 움직일 수 있다');
   eq(b.dir, (before + 3) % 4, '실제로 돌았다');
 
   // 로비 이동은 어떤 판정도 만들지 않는다 — 겹쳐 서 있어도 아무 일이 없어야 한다
-  const a = g.players.get('A');
+  const a = must(g.players.get('A'), 'A');
   a.x = b.x; a.y = b.y; a.role = 'it';
   R.input(g, 'B', 'right', 500);
   ok(b.alive, '로비에서는 겹쳐 있어도 안 잡힌다');
@@ -112,7 +118,7 @@ group('로비 워밍업 이동', () => {
   R.start(g, 2000);
   ok(R.runners(g).every(r => r.x === g.runnerSpawn.x && r.y === g.runnerSpawn.y),
      '시작 시 도망자 전원이 시작 지점으로 리셋된다');
-  const it = R.theIt(g);
+  const it = must(R.theIt(g), '술래');
   ok(it.x === g.itSpawn.x && it.y === g.itSpawn.y, '술래도 자기 시작 지점으로');
 });
 
@@ -131,7 +137,7 @@ group('역할 배정', () => {
   }
   const g = newGame();
   R.assignRoles(g, ['A']);
-  ok(R.theIt(g).id !== 'A', '§4.3 ② 역할 교대 — 직전 술래는 다시 술래가 되지 않는다');
+  ok(must(R.theIt(g), '술래').id !== 'A', '§4.3 ② 역할 교대 — 직전 술래는 다시 술래가 되지 않는다');
 });
 
 group('술래 수 — 인원에 따라', () => {
@@ -149,7 +155,7 @@ group('술래 수 — 인원에 따라', () => {
     ok(rs.length >= 1, `${n}인 → 도망자가 최소 1명은 남는다`);
     eq(its.length + rs.length, n, `${n}인 → 전원에게 역할이 있다`);
     if(its.length === 2)
-      ok(its[0].x !== its[1].x || its[0].y !== its[1].y,
+      ok(must(its[0], '술래0').x !== must(its[1], '술래1').x || must(its[0], '술래0').y !== must(its[1], '술래1').y,
          `${n}인 → 두 술래가 다른 곳에서 출발한다`);
   }
 });
@@ -163,10 +169,10 @@ group('술래 둘 중 누구에게라도 잡힌다', () => {
   eq(its.length, 2, '술래 2명');
 
   // 두 번째 술래만 도망자 옆에 붙인다 — 첫 번째가 아니어도 잡혀야 한다
-  const target = rs[0];
-  its[1].x = target.x; its[1].y = target.y; its[1].nextMoveAt = 0;
-  its[0].x = g.itSpawns[0].x; its[0].y = g.itSpawns[0].y;
-  R.input(g, its[1].id, 'left', 5000);
+  const target = must(rs[0], '도망자');
+  must(its[1], '술래1').x = target.x; must(its[1], '술래1').y = target.y; must(its[1], '술래1').nextMoveAt = 0;
+  must(its[0], '술래0').x = g.itSpawns[0].x; must(its[0], '술래0').y = g.itSpawns[0].y;
+  R.input(g, must(its[1], '술래1').id, 'left', 5000);
   ok(!target.alive, '두 번째 술래에게도 잡힌다');
 });
 
@@ -215,10 +221,10 @@ group('쿨다운 차등 (§4.3 ① A안)', () => {
 
 group('벽 · 이동 검증', () => {
   const g = newGame(); R.start(g, 0); force(g, 'A'); g.phase = 'chase';
-  const p = g.players.get('B');
+  const p = must(g.players.get('B'), 'B');
   let blocked = 0;
   for(let d=0; d<4; d++){
-    p.dir = d; p.nextMoveAt = 0;
+    p.dir = d as 0|1|2|3; p.nextMoveAt = 0;
     const dd = M.DIRS[d];
     const canWalk = M.walkable(g.grid, p.x+dd.dx, p.y+dd.dy);
     const res = R.input(g, 'B', 'forward', 10_000 + d*1000);
@@ -230,7 +236,7 @@ group('벽 · 이동 검증', () => {
 
 group('포획 — contact 1칸 즉사 (§2.3)', () => {
   const g = newGame(); R.start(g, 0); force(g, 'A'); g.phase = 'chase';
-  const it = g.players.get('A'), b = g.players.get('B'), c = g.players.get('C');
+  const it = must(g.players.get('A'), 'A'), b = must(g.players.get('B'), 'B'), c = must(g.players.get('C'), 'C');
   c.alive = false;                              // C 는 미리 잡힌 것으로 둔다
   // 술래를 도망자 바로 옆으로 옮기고 한 번 움직이게 해 판정을 태운다
   it.x = b.x; it.y = b.y; it.dir = 1; it.nextMoveAt = 0;
@@ -241,7 +247,7 @@ group('포획 — contact 1칸 즉사 (§2.3)', () => {
 
 group('탈출 — 1명이라도 나가면 도망자 진영 승 (§4.1)', () => {
   const g = newGame(); R.start(g, 0); force(g, 'A'); g.phase = 'chase';
-  const b = g.players.get('B');
+  const b = must(g.players.get('B'), 'B');
   b.x = g.exit.x; b.y = g.exit.y; b.nextMoveAt = 0;
   R.input(g, 'B', 'left', 20_000);
   ok(b.escaped, '탈출 처리');
@@ -259,11 +265,11 @@ group('제한시간', () => {
 
 group('정보 비대칭 — 서버가 아예 안 보낸다', () => {
   const g = newGame(); R.start(g, 0); force(g, 'A'); g.phase = 'chase';
-  const it = g.players.get('A'), b = g.players.get('B');
+  const it = must(g.players.get('A'), 'A'), b = must(g.players.get('B'), 'B');
   // 서로 멀리 떨어뜨린다
   it.x = g.itSpawn.x; it.y = g.itSpawn.y; b.x = g.runnerSpawn.x; b.y = g.runnerSpawn.y;
 
-  const vIt = R.viewFor(g, 'A', 0), vRun = R.viewFor(g, 'B', 0);
+  const vIt = must(R.viewFor(g, 'A', 0), '술래 시야'), vRun = must(R.viewFor(g, 'B', 0), '도망자 시야');
   const blob = JSON.stringify(vRun);
   ok(vRun.exitDist !== null && vRun.exitDist !== undefined, '도망자는 탈출구까지의 거리감을 받는다');
   ok(!('exit' in vRun) && !blob.includes('"exit":{'), '도망자는 탈출구 좌표를 못 받는다 (§4.3 ③)');
@@ -276,7 +282,7 @@ group('정보 비대칭 — 서버가 아예 안 보낸다', () => {
   const los = M.lineOfSight(g.grid, it, it.dir, 4);
   if(los.length){
     b.x = los[0].x; b.y = los[0].y;
-    const v2 = R.viewFor(g, 'A', 0);
+    const v2 = must(R.viewFor(g, 'A', 0), '시야');
     eq(v2.seen.length, 1, '정면 1칸이면 보인다');
     eq(v2.seen[0].stage, 'contact', '1칸은 contact 단계');
   }
@@ -289,10 +295,10 @@ group('정보 비대칭 — 서버가 아예 안 보낸다', () => {
    도망자 AI 가 멍청하면 답이 왜곡된다 — 순수 탐욕이면 스스로 막다른 길로 들어가
    같은 속도에서도 잡힌다. 그래서 도망자는 '막다른 칸을 피하면서 멀어지도록' 둔다. */
 group('추격이 성립하는가 — §4.3 ① 실측', () => {
-  const degree = (g, x, y) => M.DIRS.filter(e => M.walkable(g.grid, x+e.dx, y+e.dy)).length;
+  const degree = (g: Game, x: number, y: number) => M.DIRS.filter(e => M.walkable(g.grid, x+e.dx, y+e.dy)).length;
 
   // score 가 가장 큰 이웃 칸으로 한 칸 간다
-  function move(g, p, score, now){
+  function move(g: Game, p: R.Player, score: (x: number, y: number) => number, now: number){
     let pick = null, bestV = -Infinity;
     for(let d=0; d<4; d++){
       const dd = M.DIRS[d], nx = p.x + dd.dx, ny = p.y + dd.dy;
@@ -301,17 +307,17 @@ group('추격이 성립하는가 — §4.3 ① 실측', () => {
       if(v > bestV){ bestV = v; pick = d; }
     }
     if(pick === null) return;
-    p.dir = pick;                       // 회전 비용은 양쪽 동일하므로 비교에는 영향이 없다
+    p.dir = pick as 0|1|2|3;                       // 회전 비용은 양쪽 동일하므로 비교에는 영향이 없다
     p.nextMoveAt = 0;
     R.input(g, p.id, 'forward', now);
   }
 
-  function chase(itCd, runnerCd, seed){
+  function chase(itCd: number, runnerCd: number, seed: number){
     const g = R.createGame({ seed, w:13, h:13 });
     R.addPlayer(g, 'I', '술래'); R.addPlayer(g, 'R', '도망자');
     force(g, 'I');
     g.phase = 'chase'; g.phaseEndsAt = 1e9;
-    const it = g.players.get('I'), r = g.players.get('R');
+    const it = must(g.players.get('I'), 'I'), r = must(g.players.get('R'), 'R');
     const old = { ...R.COOLDOWN };
     R.COOLDOWN.it = itCd; R.COOLDOWN.runner = runnerCd;
 
@@ -321,11 +327,11 @@ group('추격이 성립하는가 — §4.3 ① 실측', () => {
       now += 10;
       if(now >= it.nextMoveAt){
         const d = M.bfs(g.grid, { x:r.x, y:r.y });          // 술래: 최단경로로 접근
-        move(g, it, (nx, ny) => -d[ny][nx], now);
+        move(g, it, (nx: number, ny: number) => -d[ny]![nx]!, now);
       }
       if(now >= r.nextMoveAt && r.alive){
         const d = M.bfs(g.grid, { x:it.x, y:it.y });        // 도망자: 멀어지되 막다른 길은 피한다
-        move(g, r, (nx, ny) => d[ny][nx]*4 + degree(g, nx, ny), now);
+        move(g, r, (nx: number, ny: number) => d[ny]![nx]!*4 + degree(g, nx, ny), now);
       }
     }
     Object.assign(R.COOLDOWN, old);
@@ -334,7 +340,9 @@ group('추격이 성립하는가 — §4.3 ① 실측', () => {
 
   const N = 25;
   const rows = [];
-  for(const [itCd, label] of [[400,'같은 속도 400/400'], [360,'차등 360/400'], [320,'A안 320/400']]){
+  // 튜플로 못 박지 않으면 (string|number)[] 로 추론돼 itCd 가 문자열일 수도 있게 된다
+  const cases: [number, string][] = [[400,'같은 속도 400/400'], [360,'차등 360/400'], [320,'A안 320/400']];
+  for(const [itCd, label] of cases){
     let caught = 0; const times = [];
     for(let seed=1; seed<=N; seed++){
       const r = chase(itCd, 400, seed);
@@ -345,7 +353,7 @@ group('추격이 성립하는가 — §4.3 ① 실측', () => {
     console.log(`  ${label.padEnd(18)} ${String(caught).padStart(2)}/${N}판 포획` +
                 (avg ? ` · 평균 ${avg.toFixed(1)}초` : ' · 포획 실패'));
   }
-  const same = rows[0], a = rows[2];
+  const same = must(rows[0], '행0'), a = must(rows[2], '행2');
   ok(a.caught > same.caught, `A안이 같은 속도보다 확실히 잘 잡는다 (${a.caught} > ${same.caught})`);
   ok(a.caught >= N*0.7, `A안에서 추격이 실제로 성립한다 (${a.caught}/${N})`);
   ok(same.caught <= N*0.5, `같은 속도로는 절반도 못 잡는다 (${same.caught}/${N}) — 문서의 우려가 사실`);

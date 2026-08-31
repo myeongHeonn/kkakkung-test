@@ -1,0 +1,18 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": ["vite/client"],
+    "moduleResolution": "bundler",
+    "module": "esnext",
+
+    /* 클라이언트는 아직 1,800줄짜리 한 덩어리다. strict 를 그대로 걸면
+       암묵적 any 수백 건이 쏟아져 정작 중요한 오류가 묻힌다.
+       프로토콜 타입(shared/protocol.ts)부터 붙이고, 모듈로 쪼개면서 조인다.
+       ⚠️ 이 완화는 임시다 — src/ 를 나눌 때 하나씩 되돌린다. */
+    "strict": false,
+    "noImplicitAny": false,
+    "strictNullChecks": false
+  },
+  "include": ["src/**/*.ts", "shared/**/*.ts", "vite.config.ts"]
+}
