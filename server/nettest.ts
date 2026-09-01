@@ -89,7 +89,9 @@ const act = (c: Peer, a: Action) => c.room.send('input', { a });
 
   try{
     await waitPort();
-    await sleep(500);
+    /* 포트는 기동 메시지보다 먼저 열린다 (gameServer.listen 안에서 server.listen 이 먼저 돈다).
+       고정 시간으로 기다리면 느린 기계에서 깜빡인다 — 메시지 자체를 기다린다. */
+    for(let i = 0; i < 50 && !/멀티플레이: 켜짐/.test(out); i++) await sleep(100);
     ok(/멀티플레이: 켜짐 — Colyseus/.test(out), 'Colyseus 로 뜬다');
 
     console.log('\n비공개 방 — 코드로 묶인다');
@@ -126,15 +128,27 @@ const act = (c: Peer, a: Action) => c.room.send('input', { a });
     const mazeBefore = A.mazeCount;
 
     console.log('\n얼굴 — 비공개 방 (§4.4 · §7)');
-    const JPEG = 'data:image/jpeg;base64,' + '/9j/4AAQSkZJRgABAQEA'.repeat(20);
+    // 256×256 JPEG(q0.7) 한 장이 대략 이 정도다. 400자짜리로는 전송 계층 한도를 못 넘어
+    // 문제를 못 잡는다 — 실제로 겪은 버그다(maxPayload 기본 4KB → code 1009).
+    const JPEG = 'data:image/jpeg;base64,' + '/9j/4AAQSkZJRgABAQEA'.repeat(1000);   // 약 20KB
     A.room.send('face', { data:JPEG });
     await sleep(400);
     ok(A.faceOk, '등록 확인을 받는다');
     ok(B.faces.get(A.id) === JPEG, '같은 방 사람에게 전달된다');
     ok(!A.faces.has(A.id), '자기 얼굴은 되돌아오지 않는다');
+    ok(JPEG.length > 4096, '전송 계층 기본 한도(4KB)를 넘는 크기로 시험한다');
+    ok(A.room.connection.isOpen, '큰 얼굴을 보내도 연결이 살아 있다');
+
     A.room.send('face', { data:'data:text/html,<script>' });
     await sleep(300);
     ok(/형식/.test(A.err || ''), 'jpeg 가 아니면 거부');
+    A.err = null;
+
+    // 한도를 넘으면 '연결이 끊기는' 게 아니라 '거부' 여야 한다. 끊기면 이유를 알 수 없다.
+    A.room.send('face', { data:'data:image/jpeg;base64,' + 'A'.repeat(85_000) });
+    await sleep(400);
+    ok(/크다/.test(A.err || ''), '한도를 넘으면 거부한다');
+    ok(A.room.connection.isOpen, '거부돼도 연결은 유지된다');
     A.err = null;
 
     const C = await player('다', { code:'TEST' });

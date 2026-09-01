@@ -94,7 +94,14 @@ try{
   const { KkakkungRoom } = await import('./server/KkakkungRoom.ts');
   const { MAX_PLAYERS } = await import('./shared/protocol.ts');
 
-  const gameServer = new colyseus.Server({ transport: new WebSocketTransport({ server }) });
+  /* maxPayload 를 올린다. 기본값이 4KB 라 얼굴 스냅샷(수십 KB)을 보내면
+     전송 계층이 코드 1009(Message Too Big)로 연결을 끊어버린다 —
+     앱 레벨 검증(KkakkungRoom 의 FACE_MAX)에 닿지도 못한다.
+     여기서 걸러지면 '연결이 끊겼다'만 뜨고 이유를 알 수 없으므로,
+     한도를 FACE_MAX 보다 넉넉히 두고 거부는 방에서 하도록 한다. */
+  const gameServer = new colyseus.Server({
+    transport: new WebSocketTransport({ server, maxPayload: 96 * 1024 }),
+  });
   // 공개·비공개를 같은 방 정의로 쓰고 code 로 가른다.
   // code 가 같은 사람끼리 묶이고, code 가 빈 문자열인 사람들은 공개 풀에서 매칭된다.
   gameServer.define('kkakkung', KkakkungRoom).filterBy(['code']);
