@@ -123,7 +123,7 @@ const act = (c: Peer, a: Action) => c.room.send('input', { a });
 
     console.log('\n미로는 한 번만 보낸다');
     ok(A.maze && Array.isArray(got(A, 'maze').grid), '입장 시 미로를 받는다');
-    ok(got(A, 'maze').grid.length >= 19, '19행 이상');
+    ok(got(A, 'maze').grid.length >= 33, '33행 이상');
     ok(A.last && got(A, 'last').grid === undefined, 'state 에는 미로가 실리지 않는다');
     const mazeBefore = A.mazeCount;
 
@@ -183,6 +183,9 @@ const act = (c: Peer, a: Action) => c.room.send('input', { a });
        그래도 런타임에 새어 나올 수 있으니 직렬화된 패킷을 직접 확인한다. */
     const runBlob = JSON.stringify(got(run0, 'last'));
     ok(!runBlob.includes('"exit"'), '도망자 패킷에 탈출구 좌표가 없다');
+    /* exitSeen 은 눈앞에 있을 때만 실린다. 도망자 시작 지점은 탈출구에서 가장 먼 칸이므로
+       (placeSpawns) 판이 시작한 직후에는 반드시 없어야 한다. */
+    ok(got(run0, 'last').exitSeen == null, '멀리 있는 탈출구는 좌표가 안 실린다');
     const itBlob = JSON.stringify(got(it, 'last').hints);
     ok(!/"x"|"y"/.test(itBlob), '술래 힌트 패킷에 좌표가 없다');
 

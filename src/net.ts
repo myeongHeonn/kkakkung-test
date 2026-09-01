@@ -5,7 +5,7 @@ import * as Colyseus from 'colyseus.js';
 import type { Action, JoinOptions, LobbyInfo, PlayerView, ServerMessages } from '../shared/protocol.ts';
 import { $, showErr } from './core/dom.ts';
 import { grid, setGrid, wx, wz } from './core/space.ts';
-import { scene, camera, creature, rebuildMaze, faceCv } from './scene.ts';
+import { scene, camera, creature, rebuildMaze, faceCv, setExit } from './scene.ts';
 import { player, view, setSender, setOnMoved } from './player.ts';
 import { sting, footstep, rustle, creatureStep, setExitDread, setOnline } from './audio.ts';
 import { mapReset, mapMark, mapDraw } from './minimap.ts';
@@ -137,6 +137,8 @@ export function mpApply(msg){
   applyMe(msg.view.me);
   applySeen(msg.view.seen);
   applyHints(msg.view);
+  // 안 보이면 서버가 아예 안 보낸다 — 여기서 걸러낼 것이 없다 (applySeen 과 같은 원칙)
+  setExit(msg.view.exitSeen ?? null);
   setExitDread(netDread());
   mpHud(msg.view, msg.lobby);
   (msg.events || []).forEach(mpEvent);

@@ -9,9 +9,9 @@
      · player 가 net 을 부르는 대신 net 이 setSender() 로 자기를 꽂는다 */
 
 import * as THREE from 'three';
-import { EYE } from './core/space.ts';
+import { EYE, EXIT } from './core/space.ts';
 import { $, P } from './core/dom.ts';
-import { renderer, scene, camera, composer, grade, isPost, sizeBloomHalf, creature } from './scene.ts';
+import { renderer, scene, camera, composer, grade, isPost, sizeBloomHalf, creature, setExit, updateExit } from './scene.ts';
 import { player, view, ease, bindKeys, setOnMoved } from './player.ts';
 import { peekNow, peekTarget, infer, pumpBitmap, inferFps, inferMs, onWorker, trackProcessorOK } from './face.ts';
 import { mapMark, mapDraw } from './minimap.ts';
@@ -25,6 +25,10 @@ import './net.ts';
 setOnMoved(() => { mapMark(player.x, player.y); mapDraw(player.x, player.y, player.dir); });
 bindKeys();
 qualPill();
+/* 솔로에서는 문을 늘 세워둔다 — 시야 규칙도 판정도 없는 연습용 미로다.
+   벽이 가려주므로 아무 데서나 보이지는 않는다.
+   접속하면 net 이 매 상태마다 서버가 준 값으로 덮어쓴다(안 보이면 null). */
+setExit(EXIT);
 mapMark(player.x, player.y);
 mapDraw(player.x, player.y, player.dir);
 
@@ -67,6 +71,7 @@ function loop(now){
     Math.sin(idle*0.5)*0.004, 'YXZ');
 
   if(creature.visible) creature.lookAt(camera.position.x, 0, camera.position.z);
+  updateExit(dt);
   grade.uniforms.uTime.value = idle;
 
   if(isPost()) composer.render(); else renderer.render(scene, camera);

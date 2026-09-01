@@ -113,7 +113,7 @@ export const box = new THREE.BoxGeometry(CELL, WALL_H, CELL);
 export let wallMesh = null;
 /* 미로는 판마다 서버가 새로 준다. 다시 세울 수 있어야 한다.
 
-   벽 하나에 메시 하나를 쓰면 19×19 에서 180개가 되고, 손전등 그림자가
+   벽 하나에 메시 하나를 쓰면 33×33 에서 540개가 되고, 손전등 그림자가
    그 전부를 매 프레임 다시 그린다. InstancedMesh 로 묶으면 드로우콜이 1개다.
    사방이 벽인 칸은 어차피 안 보이므로 만들지 않는다. */
 export function rebuildMaze(){
@@ -185,6 +185,57 @@ creature.add(facePlane);
 creature.traverse(o => { if((o as THREE.Mesh).isMesh) o.castShadow = true; });
 creature.position.set(wx(CREATURE.x), 0, wz(CREATURE.y));
 scene.add(creature);
+
+/* ══ 탈출구 ═══════════════════════════════════════
+   서버가 "지금 보인다"고 할 때만 세운다 (shared/protocol.ts 의 SeenExit).
+   좌표를 늘 들고 있으면 클라이언트를 열어보는 것으로 위치를 알 수 있다.
+
+   여기서는 MeshBasicMaterial 이 맞다. 그것의 얼굴에서는 이게 틀린 선택이었지만
+   (어둠 속에서 스스로 빛나면 손전등으로 드러나는 연출이 무너진다) 탈출구는 반대다 —
+   안개 너머로 빛이 먼저 오고, 그게 심장박동이 말하던 것의 답이어야 한다. */
+export const exitGate = new THREE.Group();
+const gateFrame = new THREE.MeshStandardMaterial({ color:0x17130f, roughness:0.92 });
+const gateGlow = new THREE.MeshBasicMaterial({
+  color:0xffc98e, transparent:true, opacity:0, side:THREE.DoubleSide, depthWrite:false });
+const postGeo = new THREE.BoxGeometry(0.2, 2.62, 0.2);
+for(const px of [-0.82, 0.82]){
+  const p = new THREE.Mesh(postGeo, gateFrame); p.position.set(px, 1.31, 0); exitGate.add(p);
+}
+const lintel = new THREE.Mesh(new THREE.BoxGeometry(1.84, 0.2, 0.2), gateFrame);
+lintel.position.y = 2.52; exitGate.add(lintel);
+const gatePane = new THREE.Mesh(new THREE.PlaneGeometry(1.44, 2.42), gateGlow);
+gatePane.position.y = 1.21; exitGate.add(gatePane);
+/* 문틈으로 새는 빛. 그림자를 만들지 않는다 — 그림자 맵은 손전등 하나로 충분하고,
+   여기에 하나 더 붙이면 자동 품질이 제일 먼저 깎아낼 비용이 된다. */
+const gateLamp = new THREE.PointLight(0xffc98e, 0, 7.5, 2);
+gateLamp.position.y = 1.5; exitGate.add(gateLamp);
+exitGate.visible = false;
+scene.add(exitGate);
+
+let exitAt: { x: number; y: number } | null = null;
+let gateFade = 0, gateT = 0;
+
+/** 서버가 보인다고 한 칸. null 이면 지금은 안 보인다. */
+export function setExit(cell: { x: number; y: number } | null): void {
+  if(cell) exitGate.position.set(wx(cell.x), 0, wz(cell.y));
+  exitAt = cell;
+}
+
+/* 켜고 끄는 것을 즉시 하지 않는다. 고개를 조금 돌렸다고 문이 딱 사라지면
+   '서버가 안 보내기 시작했다'는 게 눈에 보인다. 0.25초쯤 걸쳐 여닫는다. */
+export function updateExit(dt: number): void {
+  const want = exitAt ? 1 : 0;
+  if(gateFade === want && !exitGate.visible) return;
+  gateT += dt;
+  gateFade += (want - gateFade) * Math.min(1, dt*7);
+  if(gateFade < 0.01 && !exitAt){ gateFade = 0; exitGate.visible = false; return; }
+  exitGate.visible = true;
+  // 아주 느린 맥동 — 완전히 고정된 빛은 소품처럼 보인다
+  const pulse = 0.86 + Math.sin(gateT*1.7)*0.14;
+  gateGlow.opacity = gateFade * 0.82 * pulse;
+  gateLamp.intensity = gateFade * 2.6 * pulse;
+  exitGate.lookAt(camera.position.x, 0, camera.position.z);
+}
 
 /* ══ 후처리 ═══════════════════════════════════════ */
 export const composer = new EffectComposer(renderer);

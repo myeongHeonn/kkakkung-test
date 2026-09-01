@@ -70,6 +70,18 @@ export interface SeenPlayer {
   stage: Stage;
 }
 
+/** 탈출구 — 사람과 똑같은 규칙으로만 내려온다 (정면 4칸 · 벽 없음).
+
+    좌표를 판 시작에 한 번 주면 §4.3 ③ "도망자는 탈출구 위치를 모른다" 가 무너진다
+    (클라이언트를 열어보면 끝이다). 그렇다고 아예 안 주면 문 앞에 서도 아무것도 안 보인다.
+    그래서 **보이는 순간에만** 준다 — 심장박동이 말하던 것의 답이 눈으로 확인되는 지점이다. */
+export interface SeenExit {
+  x: number;
+  y: number;
+  /** 칸 거리 1~4 */
+  d: number;
+}
+
 /** 술래가 받는 발소리 힌트. 좌표는 없다 — 그게 §4.3 ② 다. */
 export interface SoundHint {
   /** 내가 보는 방향 기준 상대각(rad). 0 = 정면 */
@@ -97,6 +109,8 @@ export interface PlayerView {
    * 술래에게는 아예 없다(undefined) — 설계 단계(S4)가 없어 술래도 미로를 처음 본다.
    */
   exitDist?: number | null;
+  /** 탈출구가 지금 눈에 보일 때만. 안 보이면 없다(undefined) — 위 SeenExit 참조. */
+  exitSeen?: SeenExit | null;
   /** 서버는 'maze' 메시지로 따로 보낸다. state 에는 싣지 않는다(대역폭). */
   grid?: never;
 }
@@ -173,6 +187,11 @@ export const SIGHT_CELLS = 4;
 export const CAPTURE_CELLS = 1;
 /** §4.1 인원. 술래 수는 IT_COUNT 가 정한다 */
 export const MAX_PLAYERS = 6;
+/** 미로 크기. **홀수여야 한다** — generate() 가 짝수를 받으면 +1 해서 올린다(벽/통로 교대).
+    33×33 = 통로 530칸, 탈출구까지 평균 102칸(최단 주파 41초).
+    서버 기본값이자 솔로가 만드는 미로다 — 양쪽이 달라지지 않게 여기 둔다. */
+export const MAZE_W = 33;
+export const MAZE_H = 33;
 /** 3인 이하 1명, 4인 이상 2명 */
 export const IT_COUNT = (n: number): number => (n >= 4 ? 2 : 1);
 /** 방 코드 형식 */

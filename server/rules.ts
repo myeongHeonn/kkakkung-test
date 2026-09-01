@@ -8,7 +8,7 @@
 
 import * as M from './maze.ts';
 import {
-  COOLDOWN, SIGHT_CELLS, CAPTURE_CELLS, IT_COUNT,
+  COOLDOWN, SIGHT_CELLS, CAPTURE_CELLS, IT_COUNT, MAZE_W, MAZE_H,
   type Action, type Cell, type Dir, type GameEvent, type Grid,
   type LobbyPlayer, type Player, type PlayerView, type Role, type Winner,
 } from '../shared/protocol.ts';
@@ -16,7 +16,7 @@ import {
 export { COOLDOWN, SIGHT_CELLS, CAPTURE_CELLS, IT_COUNT };
 
 export const DEFAULTS = {
-  w: 19, h: 19,                 // 6인까지 들어오므로 넓힌다 (탈출구까지 평균 50칸)
+  w: MAZE_W, h: MAZE_H,         // 크기 근거는 protocol.ts. 솔로도 같은 값을 쓴다
   infiltrateMs: 10_000,         // §4.1 잠입 10초
   chaseMs: 300_000,             // §4.1 추격 5~7분 — 5분에서 시작한다
 };
@@ -246,6 +246,14 @@ export function viewFor(g: Game, id: string, now: number): PlayerView | null {
           view.seen.push({ id:o.id, name:o.name, role:o.role, x:o.x, y:o.y, d:c.d,
                            stage: c.d <= 1 ? 'contact' : c.d <= 2 ? 'near' : 'far' });
       }
+    }
+
+    /* 탈출구도 같은 시야 규칙을 탄다 — 벽 너머로는 안 보인다.
+       로비에서는 주지 않는다. 워밍업으로 문을 미리 찾아두면 판이 시작하기도 전에
+       끝나 있는 셈이고, 잠입 10초가 의미를 잃는다. */
+    if(g.phase !== 'lobby'){
+      const e = los.find(c => c.x === g.exit.x && c.y === g.exit.y);
+      if(e) view.exitSeen = { x:e.x, y:e.y, d:e.d };
     }
   }
 

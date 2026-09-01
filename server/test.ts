@@ -92,10 +92,11 @@ function force(g: Game, itId: string){
 }
 
 group('기본 설정', () => {
-  eq(R.DEFAULTS.w, 19, '맵 가로 19칸');
-  eq(R.DEFAULTS.h, 19, '맵 세로 19칸');
+  eq(R.DEFAULTS.w, 33, '맵 가로 33칸');
+  eq(R.DEFAULTS.h, 33, '맵 세로 33칸');
+  ok(R.DEFAULTS.w % 2 === 1 && R.DEFAULTS.h % 2 === 1, '홀수여야 벽/통로가 맞아떨어진다');
   const g = R.createGame({});
-  eq(g.grid.length, 19, '실제 생성도 19행');
+  eq(g.grid.length, 33, '실제 생성도 33행');
   ok(M.reachable(g.grid, g.runnerSpawn, g.exit), '넓혀도 탈출 경로는 보장된다');
 });
 
@@ -285,6 +286,45 @@ group('정보 비대칭 — 서버가 아예 안 보낸다', () => {
     const v2 = must(R.viewFor(g, 'A', 0), '시야');
     eq(v2.seen.length, 1, '정면 1칸이면 보인다');
     eq(v2.seen[0].stage, 'contact', '1칸은 contact 단계');
+  }
+});
+
+/* 탈출구는 '늘 준다'와 '아예 안 준다' 사이여야 한다.
+   늘 주면 §4.3 ③ 이 무너지고, 아예 안 주면 문 앞에 서도 아무것도 안 보인다. */
+group('탈출구는 보일 때만 내려온다', () => {
+  const g = newGame(); R.start(g, 0); force(g, 'A'); g.phase = 'chase';
+  const b = must(g.players.get('B'), 'B');
+
+  // 탈출구를 등지고 멀찍이 세운다
+  b.x = g.runnerSpawn.x; b.y = g.runnerSpawn.y;
+  const far = must(R.viewFor(g, 'B', 0), '도망자 시야');
+  ok(!far.exitSeen, '안 보이면 좌표가 아예 안 온다');
+  ok(far.exitDist !== null && far.exitDist !== undefined, '대신 거리감은 계속 온다 (§4.3 ③)');
+
+  // 탈출구를 정면 1칸에 두고 그쪽을 보게 한다
+  const stand = M.DIRS.map((d, i) => ({ x: g.exit.x - d.dx, y: g.exit.y - d.dy, dir: i as 0|1|2|3 }))
+                      .find(s => M.walkable(g.grid, s.x, s.y));
+  if(stand){
+    b.x = stand.x; b.y = stand.y; b.dir = stand.dir;
+    const near = must(R.viewFor(g, 'B', 0), '도망자 시야');
+    ok(!!near.exitSeen, '정면 1칸이면 보인다');
+    eq(near.exitSeen!.x, g.exit.x, '보일 때는 좌표가 정확하다');
+    eq(near.exitSeen!.y, g.exit.y, '보일 때는 좌표가 정확하다');
+    eq(near.exitSeen!.d, 1, '칸 거리도 함께 온다');
+
+    // 등을 돌리면 사라진다 — 화면에서 지우는 게 아니라 안 보내는 것이다
+    b.dir = ((stand.dir + 2) % 4) as 0|1|2|3;
+    ok(!must(R.viewFor(g, 'B', 0), '도망자 시야').exitSeen, '등을 돌리면 안 온다');
+
+    // 술래도 같은 규칙을 탄다 — 문은 물건이지 도망자 정보가 아니다
+    const it2 = must(g.players.get('A'), 'A');
+    it2.x = stand.x; it2.y = stand.y; it2.dir = stand.dir;
+    ok(!!must(R.viewFor(g, 'A', 0), '술래 시야').exitSeen, '술래도 눈앞의 문은 본다');
+
+    // 로비에서는 주지 않는다 — 워밍업으로 미리 찾아두면 잠입 10초가 의미를 잃는다
+    g.phase = 'lobby';
+    b.dir = stand.dir;
+    ok(!must(R.viewFor(g, 'B', 0), '도망자 시야').exitSeen, '로비에서는 눈앞이어도 안 준다');
   }
 });
 
